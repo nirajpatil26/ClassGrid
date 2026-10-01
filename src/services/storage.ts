@@ -29,7 +29,7 @@ export interface AppSettings {
 }
 
 // Built-in backend key for seamless zero-config scanning (supports Gemini 3.8 Flash & 2.5 Pro)
-const BUILTIN_ENCODED_KEY = 'QVEuQWI4Uk42TGEtZlRROEsycGxHWWYyODJsTENxZVE3Q005ZS03bkk3Z2poZFRmb081anc=';
+const BUILTIN_ENCODED_KEY = 'QVEuQWI4Uk42S3ZMckVLZEpNZUE2dTViMEdjUnMxbjg1ZzdlWThvUkZnRDRYV3ZndW9aQkE=';
 export const DEFAULT_BACKEND_GEMINI_KEY = 
   (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY) 
     ? (import.meta.env.VITE_GEMINI_API_KEY as string) 
@@ -203,7 +203,11 @@ export const StorageService = {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.SETTINGS);
       const parsed = data ? JSON.parse(data) : {};
-      const apiKey = parsed.visionApiKey || parsed.geminiApiKey || DEFAULT_BACKEND_GEMINI_KEY;
+      let apiKey = parsed.visionApiKey || parsed.geminiApiKey || DEFAULT_BACKEND_GEMINI_KEY;
+      // If the saved key was a pre-configured backend key, always update to the latest DEFAULT_BACKEND_GEMINI_KEY
+      if (typeof apiKey === 'string' && (apiKey.startsWith('AQ.') || !apiKey)) {
+        apiKey = DEFAULT_BACKEND_GEMINI_KEY;
+      }
       return {
         targetAttendance: parsed.targetAttendance ?? 75,
         visionProvider: 'gemini',
