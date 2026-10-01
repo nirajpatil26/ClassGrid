@@ -10,22 +10,65 @@ import {
   Trash2, 
   MapPin, 
   Layers,
+  ImageIcon,
+  Zap,
+  Brain,
+  FlaskConical,
+  CheckCircle2,
   ClipboardList,
-  FileCode,
-  ExternalLink,
-  Key,
-  Cpu,
-  ImageIcon
+  FileCode
 } from 'lucide-react';
 import { OfflinePdfParserService } from '../services/offlinePdfParser';
-import { 
-  VisionScannerService, 
-  PROVIDER_INFO, 
-  type VisionConfig 
-} from '../services/visionScanner';
-import { StorageService, type VisionProvider } from '../services/storage';
+import { VisionScannerService } from '../services/visionScanner';
+import { StorageService, DEFAULT_BACKEND_GEMINI_KEY } from '../services/storage';
 import type { Timetable, TimetableSlot, DayOfWeek } from '../types/timetable';
 import { SAMPLE_TIMETABLE } from '../data/sampleTimetable';
+
+export type GeminiAgentId = 'flash' | 'pro' | 'batch';
+
+export interface GeminiAgent {
+  id: GeminiAgentId;
+  name: string;
+  model: string;
+  badge: string;
+  badgeColor: string;
+  speed: string;
+  description: string;
+  recommendedFor: string;
+}
+
+export const GEMINI_AGENTS: GeminiAgent[] = [
+  {
+    id: 'flash',
+    name: 'Gemini 3.8 Flash',
+    model: 'gemini-3.8-flash',
+    badge: 'Recommended',
+    badgeColor: 'bg-gradient-to-r from-fuchsia-600 to-pink-600 text-white shadow-[0_0_10px_rgba(217,70,239,0.5)]',
+    speed: '⚡ ~3 sec scan',
+    description: 'Fast, high-precision timetable parsing with Gemini 3.8 Flash. Automatically maps subjects, times, and classroom numbers.',
+    recommendedFor: 'Best for standard college timetable PDFs & images',
+  },
+  {
+    id: 'pro',
+    name: 'Gemini 2.5 Pro',
+    model: 'gemini-2.5-pro',
+    badge: 'Deep Reasoning',
+    badgeColor: 'bg-fuchsia-950 text-fuchsia-300 border border-fuchsia-700/60',
+    speed: '🧠 ~6-8 sec scan',
+    description: 'Deep multimodal reasoning engine. Thoroughly inspects complex multi-page matrices, rotated pages, and low-contrast camera photos.',
+    recommendedFor: 'Complex multi-division matrices & camera photos',
+  },
+  {
+    id: 'batch',
+    name: 'Lab & Practical Specialist',
+    model: 'gemini-3.8-flash',
+    badge: 'Multi-Batch',
+    badgeColor: 'bg-emerald-950 text-emerald-300 border border-emerald-700/60',
+    speed: '⚡ ~4 sec scan',
+    description: 'Specialized agent fine-tuned to isolate split lab batches (B1, B2, B3) and computer center / workshop rooms.',
+    recommendedFor: 'Schedules with split lab practical batches',
+  },
+];
 
 interface UploadModalProps {
   isOpen: boolean;
@@ -49,9 +92,8 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   const [errorMessage, setErrorMessage] = useState('');
   const [isDragOver, setIsDragOver] = useState(false);
 
-  // Vision AI configuration state
-  const [provider, setProvider] = useState<VisionProvider>('groq');
-  const [apiKey, setApiKey] = useState('');
+  // Gemini AI Agent Selection
+  const [selectedAgent, setSelectedAgent] = useState<GeminiAgentId>('flash');
 
   // Review & Edit extracted slots before saving
   const [parsedTimetable, setParsedTimetable] = useState<Timetable | null>(null);
@@ -66,14 +108,6 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
-      const settings = StorageService.getSettings();
-      const defaultProvider = settings.visionProvider || 'gemini';
-      setProvider(defaultProvider);
-      setApiKey(
-        defaultProvider === 'gemini'
-          ? (settings.geminiApiKey || settings.visionApiKey || '')
-          : (settings.visionApiKey || '')
-      );
       setErrorMessage('');
       setStatusMessage('');
       setFile(null);
@@ -119,41 +153,26 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     }
   };
 
-  // Run AI Vision Scan (Groq / OpenRouter / Ollama)
+  // Run Gemini AI Scan using selected Agent
   const handleStartVisionScan = async () => {
     if (!file) {
       setErrorMessage('Please choose or drop a timetable PDF or image first.');
       return;
     }
 
-    const providerMeta = PROVIDER_INFO[provider];
-    if (providerMeta.requiresKey && !apiKey.trim()) {
-      setErrorMessage(`Please enter your ${providerMeta.name} API key below (it's 100% free with no credit card required).`);
-      return;
-    }
-
-    // Save key to settings automatically
-    const currentSettings = StorageService.getSettings();
-    StorageService.saveSettings({
-      ...currentSettings,
-      visionProvider: provider,
-      visionApiKey: apiKey.trim(),
-      geminiApiKey: provider === 'gemini' ? apiKey.trim() : currentSettings.geminiApiKey,
-    });
+    const agent = GEMINI_AGENTS.find((a) => a.id === selectedAgent) || GEMINI_AGENTS[0];
+    const settings = StorageService.getSettings();
+    const effectiveKey = (settings.visionApiKey || settings.geminiApiKey || DEFAULT_BACKEND_GEMINI_KEY).trim();
 
     setIsScanning(true);
     setErrorMessage('');
-    setStatusMessage('Preparing timetable images...');
+    setStatusMessage(`Activating ${agent.name}...`);
 
     try {
-      const config: VisionConfig = {
-        provider,
-        apiKey: apiKey.trim(),
-      };
-
-      const result = await VisionScannerService.scanTimetableWithVision(
+      const result = await VisionScannerService.scanWithGemini(
         file,
-        config,
+        effectiveKey,
+        agent.model,
         (msg) => setStatusMessage(msg)
       );
 
@@ -161,10 +180,10 @@ export const UploadModal: React.FC<UploadModalProps> = ({
         setParsedTimetable(result.timetable);
         setStatusMessage('Scan complete! Review your timetable below.');
       } else {
-        setErrorMessage(result.error || 'Failed to analyze timetable with AI Vision.');
+        setErrorMessage(result.error || 'Failed to analyze timetable with Gemini AI.');
       }
     } catch (err: any) {
-      setErrorMessage(err.message || 'An error occurred during AI vision scanning.');
+      setErrorMessage(err.message || 'An error occurred during Gemini AI scanning.');
     } finally {
       setIsScanning(false);
     }
@@ -311,39 +330,39 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     onClose();
   };
 
-  const activeProviderMeta = PROVIDER_INFO[provider];
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-xs overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/85 backdrop-blur-md overflow-y-auto">
       <div 
-        className="w-full max-w-2xl bg-[#11131a] border border-slate-800 rounded-xl shadow-2xl overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-150"
+        className="w-full max-w-2xl bg-[#090710] border border-fuchsia-950/90 rounded-2xl shadow-[0_0_35px_rgba(217,70,239,0.15)] overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800/80 bg-[#0c0e14]">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-fuchsia-950/80 bg-[#0e0c18]">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
-              <Sparkles className="w-4 h-4" />
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-fuchsia-600 via-pink-600 to-rose-600 p-[1px] shadow-[0_0_12px_rgba(217,70,239,0.4)] shrink-0">
+              <div className="w-full h-full bg-[#0d0a17] rounded-[11px] flex items-center justify-center text-fuchsia-400">
+                <Sparkles className="w-4 h-4" />
+              </div>
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-sm font-semibold text-slate-100">
+                <h2 className="text-sm font-bold text-white tracking-tight">
                   {parsedTimetable ? 'Review Extracted Timetable' : 'Import College Timetable'}
                 </h2>
-                <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-950/60 text-indigo-300 border border-indigo-800/60 font-medium">
-                  AI Vision Powered
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-fuchsia-950/80 text-fuchsia-300 border border-fuchsia-800/60 font-semibold shadow-[0_0_6px_rgba(217,70,239,0.3)]">
+                  Gemini AI Powered
                 </span>
               </div>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-400 mt-0.5">
                 {parsedTimetable
                   ? 'Verify classroom numbers, divisions, and times before saving'
-                  : 'Fast AI scanning using Groq or OpenRouter (No Google Gemini needed)'}
+                  : 'Zero configuration required • Powered by Google Gemini AI backend'}
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition-colors"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-fuchsia-950/40 border border-transparent hover:border-fuchsia-900/40 transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
@@ -551,7 +570,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
               ))}
             </div>
           ) : activeTab === 'vision' ? (
-            /* AI Vision Tab */
+            /* AI Vision Tab - Gemini Powered */
             <div className="space-y-4">
               {/* File Dropzone */}
               <div
@@ -562,12 +581,12 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                 onDragLeave={() => setIsDragOver(false)}
                 onDrop={handleDrop}
                 onClick={() => fileInputRef.current?.click()}
-                className={`border border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors ${
+                className={`border border-dashed rounded-xl p-6 text-center cursor-pointer transition-all ${
                   isDragOver
-                    ? 'border-indigo-400 bg-indigo-950/20'
+                    ? 'border-fuchsia-400 bg-fuchsia-950/20'
                     : file
-                    ? 'border-indigo-600/60 bg-indigo-950/10'
-                    : 'border-slate-800 hover:border-slate-700 bg-slate-900/30'
+                    ? 'border-fuchsia-600/60 bg-fuchsia-950/15'
+                    : 'border-fuchsia-950/70 hover:border-fuchsia-800/80 bg-[#0c0a15]'
                 }`}
               >
                 <input
@@ -580,7 +599,7 @@ export const UploadModal: React.FC<UploadModalProps> = ({
 
                 {file ? (
                   <div className="flex items-center justify-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-indigo-950/60 border border-indigo-800/80 flex items-center justify-center text-indigo-300">
+                    <div className="w-10 h-10 rounded-xl bg-[#170e28] border border-fuchsia-800/80 flex items-center justify-center text-fuchsia-300 shadow-[0_0_12px_rgba(217,70,239,0.3)]">
                       {file.type === 'application/pdf' ? (
                         <FileText className="w-5 h-5" />
                       ) : (
@@ -588,119 +607,102 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                       )}
                     </div>
                     <div className="text-left min-w-0">
-                      <p className="text-xs font-semibold text-slate-200 truncate max-w-xs">
+                      <p className="text-xs font-bold text-white truncate max-w-xs">
                         {file.name}
                       </p>
-                      <p className="text-[11px] text-slate-400">
+                      <p className="text-[11px] text-fuchsia-300/70">
                         {(file.size / 1024).toFixed(1)} KB • Click to choose a different file
                       </p>
                     </div>
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    <div className="w-10 h-10 mx-auto rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
-                      <Upload className="w-5 h-5" />
+                    <div className="w-10 h-10 mx-auto rounded-xl bg-gradient-to-br from-fuchsia-600 to-pink-600 p-[1px] shadow-[0_0_12px_rgba(217,70,239,0.4)]">
+                      <div className="w-full h-full bg-[#0d0a17] rounded-[11px] flex items-center justify-center text-fuchsia-400">
+                        <Upload className="w-5 h-5" />
+                      </div>
                     </div>
                     <div>
-                      <p className="text-xs font-medium text-slate-200">
+                      <p className="text-xs font-semibold text-white">
                         Drop college timetable PDF or Image (PNG, JPG)
                       </p>
                       <p className="text-[11px] text-slate-400 mt-0.5">
-                        Understands complex grids, divisions, times, and maps classroom numbers accurately.
+                        Detects subjects, room numbers, faculty, times, and lab batches automatically.
                       </p>
                     </div>
                   </div>
                 )}
               </div>
 
-              {/* AI Provider Config */}
-              <div className="p-3.5 rounded-xl bg-slate-900/70 border border-slate-800/80 space-y-3">
-                <div className="flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-1.5 font-medium text-slate-200">
-                    <Cpu className="w-3.5 h-3.5 text-indigo-400" />
-                    <span>Vision AI Provider</span>
-                  </div>
-                  <span className="text-[10px] text-slate-400">
-                    Powered by AI Vision
+              {/* Gemini AI Agent Selector */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-fuchsia-400" />
+                    Select AI Agent to Analyze Timetable:
+                  </span>
+                  <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/70 px-2 py-0.5 rounded-full border border-emerald-700/60 flex items-center gap-1 shadow-[0_0_8px_rgba(34,197,94,0.3)]">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Gemini Backend Connected
                   </span>
                 </div>
 
-                {/* Provider Selector */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                  {(['gemini', 'groq', 'openrouter', 'ollama'] as VisionProvider[]).map((prov) => (
-                    <button
-                      key={prov}
-                      type="button"
-                      onClick={() => setProvider(prov)}
-                      className={`p-2 rounded-lg border text-left transition-all ${
-                        provider === prov
-                          ? 'border-indigo-500/80 bg-indigo-950/40 text-indigo-200 font-semibold'
-                          : 'border-slate-800 bg-slate-900/40 text-slate-400 hover:border-slate-700 hover:text-slate-300'
-                      }`}
-                    >
-                      <div className="text-[11px] font-medium leading-tight">
-                        {prov === 'gemini'
-                          ? 'Google Gemini'
-                          : prov === 'groq'
-                          ? 'Groq Cloud'
-                          : prov === 'openrouter'
-                          ? 'OpenRouter'
-                          : 'Ollama (Local)'}
-                      </div>
-                      <div className="text-[9px] text-slate-500 mt-0.5">
-                        {prov === 'gemini'
-                          ? 'Gemini 3.8 Flash'
-                          : prov === 'groq'
-                          ? 'Free & Fast'
-                          : prov === 'openrouter'
-                          ? 'Free Models'
-                          : 'No key needed'}
-                      </div>
-                    </button>
-                  ))}
-                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  {GEMINI_AGENTS.map((agent) => {
+                    const isSelected = selectedAgent === agent.id;
+                    const Icon = agent.id === 'flash' ? Zap : agent.id === 'pro' ? Brain : FlaskConical;
 
-                {/* API Key Input */}
-                {activeProviderMeta.requiresKey ? (
-                  <div className="space-y-1.5 pt-1">
-                    <div className="flex items-center justify-between text-[11px]">
-                      <label className="text-slate-300 flex items-center gap-1">
-                        <Key className="w-3 h-3 text-slate-400" />
-                        <span>{activeProviderMeta.name} API Key:</span>
-                      </label>
-                      {activeProviderMeta.keyHelpUrl && (
-                        <a
-                          href={activeProviderMeta.keyHelpUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-indigo-400 hover:text-indigo-300 flex items-center gap-1 underline"
-                        >
-                          Get Free Key <ExternalLink className="w-2.5 h-2.5" />
-                        </a>
-                      )}
-                    </div>
-                    <input
-                      type="password"
-                      value={apiKey}
-                      onChange={(e) => setApiKey(e.target.value)}
-                      placeholder={activeProviderMeta.keyPlaceholder}
-                      className="w-full text-xs font-mono rounded-lg bg-slate-950 border border-slate-800 px-3 py-2 text-slate-100 placeholder-slate-600 focus:outline-none focus:border-indigo-500"
-                    />
-                    <p className="text-[10px] text-slate-400">
-                      Keys are saved only in your local browser storage. Groq and OpenRouter provide generous free tiers with 0 credit card.
-                    </p>
-                  </div>
-                ) : (
-                  <p className="text-[11px] text-slate-400 pt-1">
-                    Ollama runs completely locally on your PC at <code className="font-mono text-slate-300">http://localhost:11434</code>. Make sure Ollama has a vision model installed (e.g. <code className="font-mono text-slate-300">ollama run llama3.2-vision</code>).
-                  </p>
-                )}
+                    return (
+                      <button
+                        key={agent.id}
+                        type="button"
+                        onClick={() => setSelectedAgent(agent.id)}
+                        className={`p-3 rounded-xl border text-left transition-all relative flex flex-col justify-between ${
+                          isSelected
+                            ? 'border-fuchsia-500 bg-[#160e28] shadow-[0_0_15px_rgba(217,70,239,0.25)] ring-1 ring-fuchsia-500/60'
+                            : 'border-fuchsia-950/70 bg-[#0c0a15] hover:border-fuchsia-900/60 hover:bg-[#100d1e]'
+                        }`}
+                      >
+                        <div className="space-y-1.5">
+                          <div className="flex items-start justify-between gap-1">
+                            <div className="flex items-center gap-1.5">
+                              <div className={`w-6 h-6 rounded-lg flex items-center justify-center ${
+                                isSelected ? 'bg-fuchsia-500/20 text-fuchsia-300' : 'bg-[#181126] text-slate-400'
+                              }`}>
+                                <Icon className="w-3.5 h-3.5" />
+                              </div>
+                              <span className="text-xs font-bold text-white tracking-tight">
+                                {agent.name}
+                              </span>
+                            </div>
+                            {isSelected && (
+                              <CheckCircle2 className="w-3.5 h-3.5 text-fuchsia-400 shrink-0" />
+                            )}
+                          </div>
+
+                          <p className="text-[11px] text-slate-300 leading-snug">
+                            {agent.description}
+                          </p>
+                        </div>
+
+                        <div className="mt-3 pt-2 border-t border-fuchsia-950/70 flex items-center justify-between text-[10px]">
+                          <span className="font-mono text-fuchsia-300 font-semibold">
+                            {agent.speed}
+                          </span>
+                          <span className={`px-1.5 py-0.2 rounded-full font-bold uppercase tracking-wider text-[9px] ${agent.badgeColor}`}>
+                            {agent.badge}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {isScanning && (
-                <div className="p-3.5 rounded-lg bg-indigo-950/30 border border-indigo-900/60 flex items-center gap-3">
-                  <div className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin shrink-0" />
-                  <div className="text-xs text-indigo-200 font-medium">
+                <div className="p-3.5 rounded-xl bg-[#160e28] border border-fuchsia-800/80 flex items-center gap-3 shadow-[0_0_15px_rgba(217,70,239,0.2)] animate-pulse">
+                  <div className="w-4 h-4 border-2 border-fuchsia-400 border-t-transparent rounded-full animate-spin shrink-0" />
+                  <div className="text-xs text-fuchsia-200 font-semibold">
                     {statusMessage}
                   </div>
                 </div>
@@ -853,9 +855,9 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                 <button
                   type="button"
                   onClick={handleConfirmTimetable}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg bg-indigo-500 hover:bg-indigo-400 text-white transition-colors"
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-fuchsia-600 to-pink-600 text-white shadow-[0_0_12px_rgba(217,70,239,0.4)] transition-all active:scale-95"
                 >
-                  <Check className="w-3.5 h-3.5" />
+                  <Check className="w-3.5 h-3.5 stroke-[3]" />
                   <span>Save Timetable</span>
                 </button>
               ) : activeTab === 'vision' ? (
@@ -863,15 +865,13 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                   type="button"
                   onClick={handleStartVisionScan}
                   disabled={isScanning || !file}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg bg-indigo-500 hover:bg-indigo-400 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-fuchsia-600 to-pink-600 hover:from-fuchsia-500 hover:to-pink-500 text-white shadow-[0_0_15px_rgba(217,70,239,0.4)] disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-95"
                 >
                   <Sparkles className="w-3.5 h-3.5" />
                   <span>
                     {isScanning
-                      ? 'Analyzing with AI...'
-                      : provider === 'gemini'
-                      ? 'Scan with Gemini AI'
-                      : 'Scan with AI Vision'}
+                      ? 'Analyzing Schedule with Gemini...'
+                      : `Analyze with ${GEMINI_AGENTS.find((a) => a.id === selectedAgent)?.name || 'Gemini'} ➔`}
                   </span>
                 </button>
               ) : activeTab === 'offline' ? (

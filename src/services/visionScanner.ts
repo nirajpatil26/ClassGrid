@@ -1,6 +1,6 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import type { Timetable, TimetableSlot, Division, DayOfWeek, SlotType } from '../types/timetable';
-import type { VisionProvider } from './storage';
+import { DEFAULT_BACKEND_GEMINI_KEY, type VisionProvider } from './storage';
 
 // Ensure PDF.js worker is ready
 pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
@@ -247,7 +247,7 @@ export const VisionScannerService = {
     requestedModel?: string,
     onProgress?: (msg: string) => void
   ): Promise<VisionScanResult> {
-    const cleanKey = apiKey.trim().replace(/^['"]|['"]$/g, '');
+    const cleanKey = (apiKey || DEFAULT_BACKEND_GEMINI_KEY).trim().replace(/^['"]|['"]$/g, '');
 
     if (!cleanKey) {
       return {
