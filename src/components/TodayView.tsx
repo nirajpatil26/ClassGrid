@@ -71,12 +71,38 @@ export const TodayView: React.FC<TodayViewProps> = ({
     .filter((slot) => slot.day === selectedDay)
     .sort((a, b) => a.startTime.localeCompare(b.startTime));
 
+  // Quick helper to get attendance status for slot
+  const getSlotAttendance = (slotId: string, date: string = selectedDate) => {
+    return attendanceRecords.find(
+      (r) => r.slotId === slotId && r.date === date && r.divisionId === division.id
+    );
+  };
+
+  const isSlotCancelled = (slotId: string, date: string = selectedDate) => {
+    return getSlotAttendance(slotId, date)?.status === 'cancelled';
+  };
+
+  // Quick helper to get lecture note for slot
+  const getSlotNote = (slotId: string, date: string = selectedDate) => {
+    return lectureNotes.find(
+      (n) => n.slotId === slotId && n.date === date && n.divisionId === division.id
+    );
+  };
+
+  // Tomorrow info helper
+  const todayIndex = weekDays.findIndex((w) => w.isToday);
+  const tomorrowInfo =
+    todayIndex >= 0 && todayIndex < weekDays.length - 1
+      ? weekDays[todayIndex + 1]
+      : null;
+
   // Determine ongoing and next slot for today
   const now = new Date();
   const currentMinutes = now.getHours() * 60 + now.getMinutes();
 
   let currentSlot: TimetableSlot | null = null;
   let nextSlot: TimetableSlot | null = null;
+  let nextSlotContextLabel = '';
 
   if (isViewingToday) {
     for (const slot of daySlots) {
@@ -85,27 +111,42 @@ export const TodayView: React.FC<TodayViewProps> = ({
       const startMin = startH * 60 + startM;
       const endMin = endH * 60 + endM;
 
-      if (currentMinutes >= startMin && currentMinutes < endMin) {
+      // When a slot is marked as cancelled, skip it from ongoing or upcoming
+      if (isSlotCancelled(slot.id, selectedDate)) {
+        continue;
+      }
+
+      if (currentMinutes >= startMin && currentMinutes < endMin && !currentSlot) {
         currentSlot = slot;
       } else if (currentMinutes < startMin && !nextSlot) {
         nextSlot = slot;
       }
     }
+
+    // If no more classes are active/upcoming today, check tomorrow's upcoming class
+    if (!currentSlot && !nextSlot && tomorrowInfo) {
+      const tomorrowSlots = division.slots
+        .filter((s) => s.day === tomorrowInfo.day)
+        .sort((a, b) => a.startTime.localeCompare(b.startTime));
+      const firstTomorrowSlot = tomorrowSlots.find(
+        (s) => !isSlotCancelled(s.id, tomorrowInfo.dateStr)
+      );
+      if (firstTomorrowSlot) {
+        nextSlot = firstTomorrowSlot;
+        nextSlotContextLabel = 'Tomorrow';
+      }
+    }
   }
 
-  // Quick helper to get attendance status for slot
-  const getSlotAttendance = (slotId: string) => {
-    return attendanceRecords.find(
-      (r) => r.slotId === slotId && r.date === selectedDate && r.divisionId === division.id
-    );
-  };
+  // Store ongoing slot ID to avoid ternary narrowing issues in JSX
+  const ongoingSlotId = currentSlot?.id || null;
 
-  // Quick helper to get lecture note for slot
-  const getSlotNote = (slotId: string) => {
-    return lectureNotes.find(
-      (n) => n.slotId === slotId && n.date === selectedDate && n.divisionId === division.id
-    );
-  };
+  // When viewing tomorrow or another day, find the next non-cancelled slot of that day
+  let upcomingSlotForSelectedDay: TimetableSlot | null = null;
+  if (!isViewingToday) {
+    upcomingSlotForSelectedDay =
+      daySlots.find((s) => !isSlotCancelled(s.id, selectedDate)) || null;
+  }
 
   const handleAttendanceClick = (
     date: string,
@@ -258,38 +299,104 @@ export const TodayView: React.FC<TodayViewProps> = ({
               <div className="min-w-0">
                 <span className="text-[11px] font-bold text-fuchsia-300 uppercase tracking-wider flex items-center gap-1">
                   <Clock className="w-3.5 h-3.5 text-fuchsia-400" />
-                  Up Next at {nextSlot.startTime}
+                  {nextSlotContextLabel
+                    ? `Up Next (${nextSlotContextLabel}) at ${nextSlot.startTime}`
+                    : `Up Next at ${nextSlot.startTime}`}
                 </span>
                 <h4 className="text-xs sm:text-sm font-semibold text-white truncate mt-0.5">
                   {nextSlot.subjectName} ({nextSlot.subjectCode})
                 </h4>
+                {nextSlot.faculty && (
+                  <p className="text-[11px] text-slate-400 font-mono mt-0.5">
+                    {nextSlot.startTime} - {nextSlot.endTime} • Prof: {nextSlot.faculty}
+                  </p>
+                )}
               </div>
-              <div className="shrink-0 px-3 py-1.5 rounded-lg bg-[#160e26] border border-fuchsia-800/80 font-mono text-xs font-bold text-fuchsia-200 flex items-center gap-1 shadow-2xs">
-                <MapPin className="w-3.5 h-3.5 text-fuchsia-400" />
-                {nextSlot.room}
+              <div className="shrink-0 flex sm:flex-col items-center sm:items-end justify-between gap-1 bg-[#160e26] border border-fuchsia-800/80 px-3.5 py-1.5 rounded-xl font-mono text-xs font-bold text-fuchsia-200 shadow-2xs">
+                <span className="text-[10px] uppercase font-bold text-fuchsia-300 tracking-wider">
+                  Classroom
+                </span>
+                <span className="flex items-center gap-1 text-sm font-black text-white">
+                  <MapPin className="w-3.5 h-3.5 text-fuchsia-400" />
+                  {nextSlot.room}
+                </span>
               </div>
             </div>
           ) : (
             <div className="text-center py-2 text-xs text-slate-300 font-medium">
               {daySlots.length > 0
-                ? 'All scheduled lectures completed for today in ' + division.name + '!'
-                : 'No classes scheduled for today in ' + division.name + '.'}
+                ? daySlots.every((s) => isSlotCancelled(s.id, selectedDate))
+                  ? `All scheduled lectures cancelled for today in ${division.name}!`
+                  : `All scheduled lectures completed for today in ${division.name}!`
+                : `No classes scheduled for today in ${division.name}.`}
             </div>
           )}
         </div>
       ) : (
-        /* Viewing Other Day Banner */
-        <div className="p-3 rounded-xl bg-[#0e0c18] border border-fuchsia-950/80 flex items-center justify-between text-xs">
-          <div className="flex items-center gap-2 text-slate-300">
-            <CalendarIcon className="w-4 h-4 text-fuchsia-400" />
-            <span>Viewing schedule for: <strong className="text-white">{activeDayInfo.fullDate}</strong></span>
+        /* Viewing Other Day Hero Banner */
+        <div className="p-4 rounded-xl bg-gradient-to-r from-[#170e28]/90 via-[#0e0c1a]/95 to-[#07050e] border border-fuchsia-900/60 shadow-[0_0_20px_rgba(217,70,239,0.12)] space-y-3 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-60 h-60 bg-fuchsia-500/10 rounded-full blur-3xl pointer-events-none" />
+
+          {/* Date & Day Header */}
+          <div className="flex items-center justify-between text-xs border-b border-fuchsia-900/40 pb-2.5">
+            <div className="flex items-center gap-2">
+              <span className="flex items-center gap-1.5 text-fuchsia-200 font-bold">
+                <CalendarIcon className="w-4 h-4 text-fuchsia-400" />
+                {activeDayInfo.fullDate}
+              </span>
+              <span className="px-2 py-0.5 rounded-full bg-slate-800 text-fuchsia-300 border border-fuchsia-800/40 text-[10px] font-black uppercase tracking-wider">
+                {activeDayInfo.day === tomorrowInfo?.day ? 'TOMORROW' : activeDayInfo.shortWeekday}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-fuchsia-300/80 font-semibold text-[11px] bg-fuchsia-950/60 px-2 py-0.5 rounded-md border border-fuchsia-900/40">
+                {division.name}
+              </span>
+              <button
+                onClick={() => setSelectedDay(todayDayInfo.day)}
+                className="text-[11px] font-semibold text-fuchsia-400 hover:text-fuchsia-300 underline ml-1"
+              >
+                Jump to Today
+              </button>
+            </div>
           </div>
-          <button
-            onClick={() => setSelectedDay(todayDayInfo.day)}
-            className="text-[11px] font-semibold text-fuchsia-400 hover:text-fuchsia-300 underline"
-          >
-            Jump to Today
-          </button>
+
+          {/* Upcoming Status for that Day */}
+          {upcomingSlotForSelectedDay ? (
+            <div className="flex items-center justify-between gap-3 pt-1">
+              <div className="min-w-0">
+                <span className="text-[11px] font-bold text-fuchsia-300 uppercase tracking-wider flex items-center gap-1">
+                  <Clock className="w-3.5 h-3.5 text-fuchsia-400" />
+                  Up Next at {upcomingSlotForSelectedDay.startTime}
+                </span>
+                <h4 className="text-xs sm:text-sm font-semibold text-white truncate mt-0.5">
+                  {upcomingSlotForSelectedDay.subjectName} ({upcomingSlotForSelectedDay.subjectCode})
+                </h4>
+                {upcomingSlotForSelectedDay.faculty && (
+                  <p className="text-[11px] text-slate-400 font-mono mt-0.5">
+                    {upcomingSlotForSelectedDay.startTime} - {upcomingSlotForSelectedDay.endTime} • Prof: {upcomingSlotForSelectedDay.faculty}
+                  </p>
+                )}
+              </div>
+              <div className="shrink-0 flex sm:flex-col items-center sm:items-end justify-between gap-1 bg-[#1b102e] border border-fuchsia-700/70 px-3.5 py-1.5 rounded-xl shadow-[0_0_12px_rgba(217,70,239,0.25)]">
+                <span className="text-[10px] uppercase font-bold text-fuchsia-300 tracking-wider">
+                  Classroom
+                </span>
+                <span className="font-mono text-sm sm:text-base font-black text-white flex items-center gap-1">
+                  <MapPin className="w-3.5 h-3.5 text-fuchsia-400" />
+                  {upcomingSlotForSelectedDay.room}
+                </span>
+              </div>
+            </div>
+          ) : daySlots.length > 0 ? (
+            <div className="text-center py-2 text-xs text-amber-300/90 font-medium bg-amber-950/20 rounded-lg border border-amber-800/30">
+              All scheduled lectures cancelled for {activeDayInfo.day} in {division.name}!
+            </div>
+          ) : (
+            <div className="text-center py-2 text-xs text-slate-300 font-medium">
+              No classes scheduled for {activeDayInfo.day} in {division.name}.
+            </div>
+          )}
         </div>
       )}
 
@@ -316,7 +423,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
             const attendance = getSlotAttendance(slot.id);
             const note = getSlotNote(slot.id);
             const isCancelled = attendance?.status === 'cancelled';
-            const isOngoing = isViewingToday && currentSlot?.id === slot.id && !isCancelled;
+            const isOngoing = isViewingToday && ongoingSlotId === slot.id && !isCancelled;
             const isAnimating = animationState?.slotId === slot.id;
             const animStatus = animationState?.status;
 
