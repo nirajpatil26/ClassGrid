@@ -11,10 +11,6 @@ import {
   MapPin, 
   Layers,
   ImageIcon,
-  Zap,
-  Brain,
-  FlaskConical,
-  CheckCircle2,
   ClipboardList,
   FileCode
 } from 'lucide-react';
@@ -23,52 +19,6 @@ import { VisionScannerService } from '../services/visionScanner';
 import { StorageService, DEFAULT_BACKEND_GEMINI_KEY } from '../services/storage';
 import type { Timetable, TimetableSlot, DayOfWeek } from '../types/timetable';
 import { SAMPLE_TIMETABLE } from '../data/sampleTimetable';
-
-export type GeminiAgentId = 'flash' | 'pro' | 'batch';
-
-export interface GeminiAgent {
-  id: GeminiAgentId;
-  name: string;
-  model: string;
-  badge: string;
-  badgeColor: string;
-  speed: string;
-  description: string;
-  recommendedFor: string;
-}
-
-export const GEMINI_AGENTS: GeminiAgent[] = [
-  {
-    id: 'flash',
-    name: 'Gemini 3.8 Flash',
-    model: 'gemini-3.8-flash',
-    badge: 'Recommended',
-    badgeColor: 'bg-gradient-to-r from-fuchsia-600 to-pink-600 text-white shadow-[0_0_10px_rgba(217,70,239,0.5)]',
-    speed: '⚡ ~3 sec scan',
-    description: 'Fast, high-precision timetable parsing with Gemini 3.8 Flash. Automatically maps subjects, times, and classroom numbers.',
-    recommendedFor: 'Best for standard college timetable PDFs & images',
-  },
-  {
-    id: 'pro',
-    name: 'Gemini 2.5 Pro',
-    model: 'gemini-2.5-pro',
-    badge: 'Deep Reasoning',
-    badgeColor: 'bg-fuchsia-950 text-fuchsia-300 border border-fuchsia-700/60',
-    speed: '🧠 ~6-8 sec scan',
-    description: 'Deep multimodal reasoning engine. Thoroughly inspects complex multi-page matrices, rotated pages, and low-contrast camera photos.',
-    recommendedFor: 'Complex multi-division matrices & camera photos',
-  },
-  {
-    id: 'batch',
-    name: 'Lab & Practical Specialist',
-    model: 'gemini-3.8-flash',
-    badge: 'Multi-Batch',
-    badgeColor: 'bg-emerald-950 text-emerald-300 border border-emerald-700/60',
-    speed: '⚡ ~4 sec scan',
-    description: 'Specialized agent fine-tuned to isolate split lab batches (B1, B2, B3) and computer center / workshop rooms.',
-    recommendedFor: 'Schedules with split lab practical batches',
-  },
-];
 
 interface UploadModalProps {
   isOpen: boolean;
@@ -91,9 +41,6 @@ export const UploadModal: React.FC<UploadModalProps> = ({
   const [statusMessage, setStatusMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [isDragOver, setIsDragOver] = useState(false);
-
-  // Gemini AI Agent Selection
-  const [selectedAgent, setSelectedAgent] = useState<GeminiAgentId>('flash');
 
   // Review & Edit extracted slots before saving
   const [parsedTimetable, setParsedTimetable] = useState<Timetable | null>(null);
@@ -153,26 +100,25 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     }
   };
 
-  // Run Gemini AI Scan using selected Agent
+  // Run Gemini 3.8 AI Scan
   const handleStartVisionScan = async () => {
     if (!file) {
       setErrorMessage('Please choose or drop a timetable PDF or image first.');
       return;
     }
 
-    const agent = GEMINI_AGENTS.find((a) => a.id === selectedAgent) || GEMINI_AGENTS[0];
     const settings = StorageService.getSettings();
     const effectiveKey = (settings.visionApiKey || settings.geminiApiKey || DEFAULT_BACKEND_GEMINI_KEY).trim();
 
     setIsScanning(true);
     setErrorMessage('');
-    setStatusMessage(`Activating ${agent.name}...`);
+    setStatusMessage('Analyzing timetable with Gemini 3.8...');
 
     try {
       const result = await VisionScannerService.scanWithGemini(
         file,
         effectiveKey,
-        agent.model,
+        'gemini-3.8-flash',
         (msg) => setStatusMessage(msg)
       );
 
@@ -634,69 +580,21 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                 )}
               </div>
 
-              {/* Gemini AI Agent Selector */}
-              <div className="space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-fuchsia-400" />
-                    Select AI Agent to Analyze Timetable:
-                  </span>
-                  <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/70 px-2 py-0.5 rounded-full border border-emerald-700/60 flex items-center gap-1 shadow-[0_0_8px_rgba(34,197,94,0.3)]">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    Gemini Backend Connected
-                  </span>
+              {/* Gemini 3.8 AI Status Banner */}
+              <div className="flex items-center justify-between p-3.5 rounded-xl bg-[#0d0918] border border-fuchsia-950/70 shadow-sm text-xs">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-fuchsia-500/15 text-fuchsia-400 flex items-center justify-center">
+                    <Sparkles className="w-3.5 h-3.5" />
+                  </div>
+                  <div>
+                    <p className="font-bold text-white text-xs">Gemini 3.8 Flash</p>
+                    <p className="text-[11px] text-slate-400">Automatic timetable extraction & room mapping</p>
+                  </div>
                 </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                  {GEMINI_AGENTS.map((agent) => {
-                    const isSelected = selectedAgent === agent.id;
-                    const Icon = agent.id === 'flash' ? Zap : agent.id === 'pro' ? Brain : FlaskConical;
-
-                    return (
-                      <button
-                        key={agent.id}
-                        type="button"
-                        onClick={() => setSelectedAgent(agent.id)}
-                        className={`p-3 rounded-xl border text-left transition-all relative flex flex-col justify-between ${
-                          isSelected
-                            ? 'border-fuchsia-500 bg-[#160e28] shadow-[0_0_15px_rgba(217,70,239,0.25)] ring-1 ring-fuchsia-500/60'
-                            : 'border-fuchsia-950/70 bg-[#0c0a15] hover:border-fuchsia-900/60 hover:bg-[#100d1e]'
-                        }`}
-                      >
-                        <div className="space-y-1.5">
-                          <div className="flex items-start justify-between gap-1">
-                            <div className="flex items-center gap-1.5">
-                              <div className={`w-6 h-6 rounded-lg flex items-center justify-center ${
-                                isSelected ? 'bg-fuchsia-500/20 text-fuchsia-300' : 'bg-[#181126] text-slate-400'
-                              }`}>
-                                <Icon className="w-3.5 h-3.5" />
-                              </div>
-                              <span className="text-xs font-bold text-white tracking-tight">
-                                {agent.name}
-                              </span>
-                            </div>
-                            {isSelected && (
-                              <CheckCircle2 className="w-3.5 h-3.5 text-fuchsia-400 shrink-0" />
-                            )}
-                          </div>
-
-                          <p className="text-[11px] text-slate-300 leading-snug">
-                            {agent.description}
-                          </p>
-                        </div>
-
-                        <div className="mt-3 pt-2 border-t border-fuchsia-950/70 flex items-center justify-between text-[10px]">
-                          <span className="font-mono text-fuchsia-300 font-semibold">
-                            {agent.speed}
-                          </span>
-                          <span className={`px-1.5 py-0.2 rounded-full font-bold uppercase tracking-wider text-[9px] ${agent.badgeColor}`}>
-                            {agent.badge}
-                          </span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
+                <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/70 px-2 py-0.5 rounded-full border border-emerald-700/60 flex items-center gap-1 shadow-[0_0_8px_rgba(34,197,94,0.3)]">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Ready
+                </span>
               </div>
 
               {isScanning && (
@@ -865,14 +763,10 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                   type="button"
                   onClick={handleStartVisionScan}
                   disabled={isScanning || !file}
-                  className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-fuchsia-600 to-pink-600 hover:from-fuchsia-500 hover:to-pink-500 text-white shadow-[0_0_15px_rgba(217,70,239,0.4)] disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-95"
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-5 py-2 text-xs font-bold rounded-xl bg-gradient-to-r from-fuchsia-600 to-pink-600 hover:from-fuchsia-500 hover:to-pink-500 text-white shadow-[0_0_15px_rgba(217,70,239,0.4)] disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-95"
                 >
                   <Sparkles className="w-3.5 h-3.5" />
-                  <span>
-                    {isScanning
-                      ? 'Analyzing Schedule with Gemini...'
-                      : `Analyze with ${GEMINI_AGENTS.find((a) => a.id === selectedAgent)?.name || 'Gemini'} ➔`}
-                  </span>
+                  <span>{isScanning ? 'Analyzing with Gemini 3.8...' : 'Analyse'}</span>
                 </button>
               ) : activeTab === 'offline' ? (
                 <button
