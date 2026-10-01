@@ -1,0 +1,149 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: #050508;
+    color: #fdf2f8;
+    margin: 0;
+    padding: 0;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    min-height: 100vh;
+  }
+
+  /* Custom magenta/dark scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #09070f;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #3b1947;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #d946ef;
+  }
+}
+
+/* Animations for Attendance and Magenta Aesthetic */
+@keyframes presentPop {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 rgba(34, 197, 94, 0);
+  }
+  30% {
+    transform: scale(1.15);
+    box-shadow: 0 0 25px rgba(34, 197, 94, 0.8), 0 0 10px rgba(74, 222, 128, 0.6);
+  }
+  65% {
+    transform: scale(0.95);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 12px rgba(34, 197, 94, 0.4);
+  }
+}
+
+@keyframes absentWobble {
+  0% {
+    transform: translateX(0) scale(1);
+  }
+  20% {
+    transform: translateX(-6px) scale(1.05);
+    box-shadow: 0 0 25px rgba(244, 63, 94, 0.8), 0 0 10px rgba(251, 113, 133, 0.6);
+  }
+  40% {
+    transform: translateX(6px);
+  }
+  60% {
+    transform: translateX(-4px);
+  }
+  80% {
+    transform: translateX(3px);
+  }
+  100% {
+    transform: translateX(0) scale(1);
+    box-shadow: 0 0 12px rgba(244, 63, 94, 0.4);
+  }
+}
+
+@keyframes floatFeedback {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.85);
+  }
+  20% {
+    opacity: 1;
+    transform: translateY(-4px) scale(1.05);
+  }
+  80% {
+    opacity: 1;
+    transform: translateY(-12px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-22px) scale(0.9);
+  }
+}
+
+@keyframes magentaPulse {
+  0%, 100% {
+    box-shadow: 0 0 15px rgba(217, 70, 239, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(236, 72, 153, 0.65), 0 0 10px rgba(217, 70, 239, 0.5);
+  }
+}
+
+@keyframes cancelledSettle {
+  0% {
+    transform: scale(1);
+  }
+  30% {
+    transform: scale(0.97);
+    filter: brightness(0.8);
+  }
+  60% {
+    transform: scale(0.99);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.animate-present-pop {
+  animation: presentPop 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+}
+
+.animate-absent-wobble {
+  animation: absentWobble 0.5s ease-in-out both;
+}
+
+.animate-cancelled-settle {
+  animation: cancelledSettle 0.45s ease-out both;
+}
+
+.animate-float-feedback {
+  animation: floatFeedback 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
+.glow-magenta {
+  box-shadow: 0 0 20px rgba(217, 70, 239, 0.4);
+}
+
+.glow-magenta-sm {
+  box-shadow: 0 0 10px rgba(217, 70, 239, 0.3);
+}
+
+.glow-magenta-pulse {
+  animation: magentaPulse 2.5s infinite ease-in-out;
+}
+
