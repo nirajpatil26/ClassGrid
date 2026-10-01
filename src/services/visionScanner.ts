@@ -43,18 +43,18 @@ export const PROVIDER_INFO: Record<
     description: 'Native timetable analysis powered by Gemini 3.8 Flash.',
     endpoint: 'https://generativelanguage.googleapis.com/v1beta/models',
     defaultModel: 'gemini-3.8-flash',
-    models: ['gemini-3.8-flash', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'],
+    models: ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3-flash-preview', 'gemini-3.1-flash-lite'],
     keyHelpUrl: 'https://aistudio.google.com/app/apikey',
     keyPlaceholder: 'AIzaSy...',
     requiresKey: true,
   },
   groq: {
     name: 'Groq Cloud (Fast & Free)',
-    description: 'Free Vision AI tier, very fast processing (~2-3s). Zero credit card required.',
+    description: 'Ultra-fast LPU timetable extraction (~1-2s). Zero credit card required.',
     endpoint: 'https://api.groq.com/openai/v1/chat/completions',
     proxyEndpoint: '/proxy/groq/openai/v1/chat/completions',
-    defaultModel: 'llama-3.2-11b-vision-preview',
-    models: ['llama-3.2-11b-vision-preview', 'llama-3.2-90b-vision-preview'],
+    defaultModel: 'openai/gpt-oss-120b',
+    models: ['openai/gpt-oss-120b', 'qwen/qwen3.8-27b', 'openai/gpt-oss-20b'],
     keyHelpUrl: 'https://console.groq.com/keys',
     keyPlaceholder: 'gsk_...',
     requiresKey: true,
@@ -343,28 +343,28 @@ export const VisionScannerService = {
         };
       });
 
-      // Prepare prioritized list of models
+      // Prepare prioritized list of active models (excluding deprecated 1.5/2.0/2.5 models)
+      const isDeprecated = (m?: string) => Boolean(m && /1\.5|2\.0|2\.5/.test(m));
       const defaultCandidates = [
         requestedModel,
         'gemini-3.8-flash',
-        'gemini-2.5-flash',
-        'gemini-2.0-flash',
-        'gemini-1.5-flash',
-        'gemini-1.5-flash-8b',
-        'gemini-1.5-pro',
-      ].filter(Boolean) as string[];
+        'gemini-3.6-flash',
+        'gemini-3.5-flash',
+        'gemini-3-flash-preview',
+        'gemini-3.1-flash-lite',
+      ].filter((m): m is string => Boolean(m) && !isDeprecated(m));
 
       // If availableModels was returned, place accessible models first
       const prioritizedModels: string[] = [];
       if (availableModels.length > 0) {
         defaultCandidates.forEach((cand) => {
-          if (availableModels.includes(cand) && !prioritizedModels.includes(cand)) {
+          if (availableModels.includes(cand) && !prioritizedModels.includes(cand) && !isDeprecated(cand)) {
             prioritizedModels.push(cand);
           }
         });
-        // Also add any other flash models found
+        // Also add any other active flash models found
         availableModels.forEach((m) => {
-          if (m.includes('flash') && !prioritizedModels.includes(m)) {
+          if (m.includes('flash') && !m.includes('tts') && !m.includes('image') && !prioritizedModels.includes(m) && !isDeprecated(m)) {
             prioritizedModels.push(m);
           }
         });
@@ -372,7 +372,7 @@ export const VisionScannerService = {
 
       // Add remaining fallbacks
       defaultCandidates.forEach((cand) => {
-        if (!prioritizedModels.includes(cand)) {
+        if (!prioritizedModels.includes(cand) && !isDeprecated(cand)) {
           prioritizedModels.push(cand);
         }
       });
@@ -447,7 +447,7 @@ export const VisionScannerService = {
             const msg = errData?.error?.message || `HTTP ${response.status} ${response.statusText}`;
             lastError = `Google Gemini (${model}): ${msg}`;
 
-            // If it's a hard auth failure or quota exhausted, stop immediately
+            // If it's a hard auth failure (invalid key), stop immediately
             if (
               msg.toLowerCase().includes('api_key_invalid') ||
               msg.toLowerCase().includes('not valid') ||
@@ -459,14 +459,14 @@ export const VisionScannerService = {
               };
             }
 
-            if (response.status === 429 || msg.toLowerCase().includes('quota')) {
-              return {
-                success: false,
-                error: `Gemini quota exceeded: ${msg}. Wait a minute or switch to Groq Cloud / OpenRouter in the modal.`,
-              };
+            // If rate-limited / quota exhausted / high demand on this model, DO NOT abort!
+            // Automatically try next model in the pool (e.g. gemini-3.6-flash, 3.5-flash)
+            if (response.status === 429 || msg.toLowerCase().includes('quota') || response.status === 503) {
+              onProgress?.(`${model} limit reached, switching to backup Gemini engine...`);
+              continue;
             }
 
-            // Try next model if it's a 404 (model not found)
+            // Try next model if it's a 404 or other issue
             continue;
           }
 
@@ -684,9 +684,10 @@ export const VisionScannerService = {
       }
 
       const clean = combined.trim();
-      const hasDays = /\b(mon|tue|wed|thu|fri|sat|monday|tuesday|wednesday|thursday|friday|saturday)\b/i.test(clean);
+      const hasDays = /\b(mon|tue|wed|thu|fri|sat|sun|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(clean);
       const hasTimes = /\b\d{1,2}[:.]\d{2}\b/.test(clean);
-      const hasDigitalText = clean.length > 80 && (hasDays || hasTimes);
+      const hasTimetableKeywords = /\b(time|table|schedule|dept|room|batch|slot|class|div|semester|sem)\b/i.test(clean);
+      const hasDigitalText = clean.length > 40 && (hasDays || hasTimes || hasTimetableKeywords);
 
       return { text: clean, hasDigitalText };
     } catch {
@@ -704,56 +705,72 @@ export const VisionScannerService = {
     fileName: string = 'Timetable',
     onProgress?: (msg: string) => void
   ): Promise<VisionScanResult> {
-    onProgress?.('Processing timetable with Groq LPU engine (~1s)...');
-
+    const groqModels = ['openai/gpt-oss-120b', 'qwen/qwen3.8-27b', 'openai/gpt-oss-20b'];
     const prompt = `${SYSTEM_TIMETABLE_PROMPT}\n\nHere is the text extracted from the college timetable document:\n\n${text.substring(0, 30000)}\n\nExtract all divisions, days, slots, subjects, rooms, faculty, and lab groups into the required JSON format.`;
 
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'openai/gpt-oss-120b',
-        response_format: { type: 'json_object' },
-        messages: [
-          {
-            role: 'system',
-            content: 'You extract college timetables into structured JSON according to the schema provided. Only output valid JSON matching the format.'
+    let lastGroqError = '';
+
+    for (const model of groqModels) {
+      try {
+        onProgress?.(`Processing schedule with Groq LPU (${model})...`);
+
+        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
           },
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        temperature: 0.1,
-      })
-    });
+          body: JSON.stringify({
+            model,
+            response_format: { type: 'json_object' },
+            messages: [
+              {
+                role: 'system',
+                content: 'You extract college timetables into structured JSON according to the schema provided. Only output valid JSON matching the format.'
+              },
+              {
+                role: 'user',
+                content: prompt
+              }
+            ],
+            temperature: 0.1,
+          })
+        });
 
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err?.error?.message || `Groq HTTP ${response.status}`);
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({}));
+          lastGroqError = err?.error?.message || `Groq HTTP ${response.status}`;
+          continue;
+        }
+
+        const data = await response.json();
+        const rawContent = data.choices?.[0]?.message?.content;
+        if (!rawContent) {
+          lastGroqError = `No content returned by Groq (${model}).`;
+          continue;
+        }
+
+        const jsonStart = rawContent.indexOf('{');
+        const jsonEnd = rawContent.lastIndexOf('}');
+        if (jsonStart === -1 || jsonEnd === -1) {
+          lastGroqError = 'Groq response did not contain a valid JSON schedule.';
+          continue;
+        }
+
+        const cleanJson = rawContent.substring(jsonStart, jsonEnd + 1);
+        const parsedData = JSON.parse(cleanJson);
+        const timetable = this.normalizeExtractedData(parsedData, fileName);
+
+        return {
+          success: true,
+          timetable,
+        };
+      } catch (err: any) {
+        lastGroqError = err.message || String(err);
+      }
     }
 
-    const data = await response.json();
-    const rawContent = data.choices?.[0]?.message?.content;
-    if (!rawContent) throw new Error('No content returned by Groq.');
-
-    const jsonStart = rawContent.indexOf('{');
-    const jsonEnd = rawContent.lastIndexOf('}');
-    if (jsonStart === -1 || jsonEnd === -1) {
-      throw new Error('Groq response did not contain a valid JSON schedule.');
-    }
-
-    const cleanJson = rawContent.substring(jsonStart, jsonEnd + 1);
-    const parsedData = JSON.parse(cleanJson);
-    const timetable = this.normalizeExtractedData(parsedData, fileName);
-
-    return {
-      success: true,
-      timetable,
-    };
+    throw new Error(lastGroqError || 'Failed to process schedule with Groq.');
   },
 
   /**
@@ -769,21 +786,19 @@ export const VisionScannerService = {
     const geminiKeys = BACKEND_GEMINI_KEYS.length > 0 ? BACKEND_GEMINI_KEYS : [DEFAULT_BACKEND_GEMINI_KEY];
 
     // --- PHASE 1: Check if PDF has digital text (Instant 90% token & quota saver) ---
-    if (isPdf) {
+    if (isPdf && groqKey) {
       onProgress?.('Inspecting document layout...');
       const { text, hasDigitalText } = await this.extractPdfText(file);
 
-      if (hasDigitalText) {
-        if (groqKey) {
-          try {
-            onProgress?.('Digital text detected! Running fast Groq analysis (~1s)...');
-            const result = await this.scanWithGroqText(text, groqKey, file.name, onProgress);
-            if (result.success && result.timetable && result.timetable.divisions.some(d => d.slots.length > 0)) {
-              return result;
-            }
-          } catch (groqErr) {
-            console.warn('Groq text scan failed, trying Gemini key pool...', groqErr);
+      if (hasDigitalText || text.length > 40) {
+        try {
+          onProgress?.('Text detected! Running fast Groq analysis (~1s)...');
+          const result = await this.scanWithGroqText(text, groqKey, file.name, onProgress);
+          if (result.success && result.timetable && result.timetable.divisions.some(d => d.slots.length > 0)) {
+            return result;
           }
+        } catch (groqErr) {
+          console.warn('Groq text scan failed, trying Gemini visual engine...', groqErr);
         }
       }
     }
@@ -792,7 +807,7 @@ export const VisionScannerService = {
     let lastError = '';
     for (let i = 0; i < geminiKeys.length; i++) {
       const key = geminiKeys[i];
-      const keyLabel = i === 0 ? 'Primary Gemini 3.8' : `Backup Gemini Key (${i + 1})`;
+      const keyLabel = i === 0 ? 'Gemini AI Vision' : `Backup Gemini Key (${i + 1})`;
       onProgress?.(`Analyzing timetable with ${keyLabel}...`);
 
       try {
@@ -801,17 +816,11 @@ export const VisionScannerService = {
           return result;
         }
 
-        // Check if rate limited / quota exceeded
-        if (result.error && (result.error.toLowerCase().includes('quota') || result.error.includes('429') || result.error.toLowerCase().includes('limit'))) {
-          onProgress?.(`Rate limit on Key ${i + 1}. Auto-switching to backup Gemini key...`);
-          lastError = result.error;
-          continue; // try next key in pool!
-        } else if (result.error) {
+        if (result.error) {
           lastError = result.error;
         }
       } catch (err: any) {
         lastError = err.message || 'Network error';
-        onProgress?.(`Notice on Key ${i + 1}, switching to next key in pool...`);
       }
     }
 
@@ -819,7 +828,7 @@ export const VisionScannerService = {
     if (isPdf && groqKey) {
       try {
         const { text } = await this.extractPdfText(file);
-        if (text && text.length > 50) {
+        if (text && text.length > 20) {
           onProgress?.('Falling back to Groq LPU engine...');
           const result = await this.scanWithGroqText(text, groqKey, file.name, onProgress);
           if (result.success && result.timetable) {
