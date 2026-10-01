@@ -10,6 +10,7 @@ import { LectureNoteModal } from './components/LectureNoteModal';
 import { UploadModal } from './components/UploadModal';
 import { SettingsModal } from './components/SettingsModal';
 import { StorageService } from './services/storage';
+import { getDivisionGroups, filterDivisionByGroup } from './utils/groupUtils';
 import type { 
   Timetable, 
   TimetableSlot, 
@@ -25,6 +26,7 @@ export const App: React.FC = () => {
   const [timetables, setTimetables] = useState<Timetable[]>(() => StorageService.getTimetables());
   const [activeTimetableId, setActiveTimetableId] = useState<string>(() => StorageService.getActiveTimetableId());
   const [activeDivisionId, setActiveDivisionId] = useState<string>(() => StorageService.getActiveDivisionId());
+  const [activeGroupId, setActiveGroupId] = useState<string>(() => StorageService.getActiveGroupId());
   
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(() => StorageService.getAttendance());
   const [lectureNotes, setLectureNotes] = useState<LectureNote[]>(() => StorageService.getNotes());
@@ -39,15 +41,21 @@ export const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [activeNoteSlot, setActiveNoteSlot] = useState<{ slot: TimetableSlot; date: string } | null>(null);
 
-  // Active Timetable and Division objects
+  // Active Timetable and Raw Division objects
   const activeTimetable = timetables.find((t) => t.id === activeTimetableId) || timetables[0];
-  const activeDivision =
+  const rawActiveDivision =
     activeTimetable?.divisions.find((d) => d.id === activeDivisionId) ||
     activeTimetable?.divisions[0] || {
       id: 'div-fallback',
       name: 'Default Division',
       slots: [],
     };
+
+  // Lab Groups / Batches present in the current division (e.g. ['Q1', 'Q2', 'Q3'])
+  const availableGroups = getDivisionGroups(rawActiveDivision);
+
+  // Filter division's timetable slots based on selected group (keeping common lectures)
+  const activeDivision = filterDivisionByGroup(rawActiveDivision, activeGroupId);
 
   // Ensure activeDivisionId stays synchronized if timetable changes
   useEffect(() => {
@@ -63,6 +71,18 @@ export const App: React.FC = () => {
   const handleSelectDivision = (divId: string) => {
     setActiveDivisionId(divId);
     StorageService.setActiveDivisionId(divId);
+    const targetDiv = activeTimetable?.divisions.find((d) => d.id === divId);
+    const grps = getDivisionGroups(targetDiv);
+    if (grps.length > 0 && activeGroupId !== 'All' && !grps.includes(activeGroupId)) {
+      const fallbackGrp = grps[0] || 'All';
+      setActiveGroupId(fallbackGrp);
+      StorageService.setActiveGroupId(fallbackGrp);
+    }
+  };
+
+  const handleSelectGroup = (group: string) => {
+    setActiveGroupId(group);
+    StorageService.setActiveGroupId(group);
   };
 
   const handleMarkAttendance = (
@@ -98,6 +118,11 @@ export const App: React.FC = () => {
     setActiveTimetableId(newTimetable.id);
     if (newTimetable.divisions[0]) {
       setActiveDivisionId(newTimetable.divisions[0].id);
+      StorageService.setActiveDivisionId(newTimetable.divisions[0].id);
+      const grps = getDivisionGroups(newTimetable.divisions[0]);
+      const initialGroup = grps[0] || 'All';
+      setActiveGroupId(initialGroup);
+      StorageService.setActiveGroupId(initialGroup);
     }
     setActiveTab('today');
     setScheduleSubView('today');
@@ -110,8 +135,11 @@ export const App: React.FC = () => {
         institution={activeTimetable?.institution || activeTimetable?.title}
         semester={activeTimetable?.semester}
         divisions={activeTimetable?.divisions || []}
-        activeDivisionId={activeDivision.id}
+        activeDivisionId={rawActiveDivision.id}
         onSelectDivision={handleSelectDivision}
+        availableGroups={availableGroups}
+        activeGroupId={activeGroupId}
+        onSelectGroup={handleSelectGroup}
         onOpenUpload={() => setIsUploadOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
       />
@@ -203,6 +231,9 @@ export const App: React.FC = () => {
                     division={activeDivision}
                     attendanceRecords={attendanceRecords}
                     lectureNotes={lectureNotes}
+                    availableGroups={availableGroups}
+                    activeGroupId={activeGroupId}
+                    onSelectGroup={handleSelectGroup}
                     onMarkAttendance={handleMarkAttendance}
                     onOpenNoteModal={(slot, date) => setActiveNoteSlot({ slot, date })}
                     onSwitchToWeekly={() => setScheduleSubView('weekly')}

@@ -10,7 +10,8 @@ import {
   Sparkles, 
   Calendar as CalendarIcon,
   Grid,
-  Radio
+  Radio,
+  Users
 } from 'lucide-react';
 import type { 
   Division, 
@@ -26,6 +27,9 @@ interface TodayViewProps {
   division: Division;
   attendanceRecords: AttendanceRecord[];
   lectureNotes: LectureNote[];
+  availableGroups?: string[];
+  activeGroupId?: string;
+  onSelectGroup?: (group: string) => void;
   onMarkAttendance: (
     date: string,
     slotId: string,
@@ -41,6 +45,9 @@ export const TodayView: React.FC<TodayViewProps> = ({
   division,
   attendanceRecords,
   lectureNotes,
+  availableGroups = [],
+  activeGroupId = 'All',
+  onSelectGroup,
   onMarkAttendance,
   onOpenNoteModal,
   onSwitchToWeekly,
@@ -159,6 +166,41 @@ export const TodayView: React.FC<TodayViewProps> = ({
           <span>Full Week Grid</span>
         </button>
       </div>
+
+      {/* Lab Group / Batch Quick Selector */}
+      {availableGroups.length > 0 && (
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+          <span className="text-[11px] font-bold text-slate-400 flex items-center gap-1 shrink-0 uppercase tracking-wider">
+            <Users className="w-3.5 h-3.5 text-pink-400" />
+            Lab Batch:
+          </span>
+          <button
+            type="button"
+            onClick={() => onSelectGroup?.('All')}
+            className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all shrink-0 ${
+              activeGroupId === 'All'
+                ? 'bg-gradient-to-r from-pink-600 to-rose-600 text-white shadow-[0_0_10px_rgba(236,72,153,0.4)] font-bold'
+                : 'bg-[#120d20] text-slate-400 hover:text-pink-300 border border-fuchsia-950/70'
+            }`}
+          >
+            All Batches
+          </button>
+          {availableGroups.map((grp) => (
+            <button
+              key={grp}
+              type="button"
+              onClick={() => onSelectGroup?.(grp)}
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all shrink-0 ${
+                activeGroupId === grp
+                  ? 'bg-gradient-to-r from-pink-600 to-rose-600 text-white shadow-[0_0_12px_rgba(236,72,153,0.45)] ring-1 ring-pink-400'
+                  : 'bg-[#120d20] text-pink-300/80 hover:text-pink-200 border border-pink-950/80 hover:border-pink-800/60'
+              }`}
+            >
+              Group {grp}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Prominently Highlighted TODAY Hero Section (Deep Obsidian & Magenta Glow) */}
       {isViewingToday ? (

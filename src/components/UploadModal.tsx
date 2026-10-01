@@ -12,7 +12,8 @@ import {
   Layers,
   ImageIcon,
   ClipboardList,
-  FileCode
+  FileCode,
+  Users
 } from 'lucide-react';
 import { OfflinePdfParserService } from '../services/offlinePdfParser';
 import { VisionScannerService } from '../services/visionScanner';
@@ -496,6 +497,21 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                               placeholder="Room / Hall"
                               className="w-24 bg-slate-800 text-slate-200 font-mono font-semibold py-1 px-2 rounded border border-indigo-700/50 text-xs focus:outline-none focus:border-indigo-500"
                               title="Classroom or Lab number"
+                            />
+                          </div>
+
+                          {/* Lab Batch / Group (e.g. Q1, Q2, All) */}
+                          <div className="flex items-center gap-1">
+                            <Users className="w-3 h-3 text-pink-400 shrink-0" />
+                            <input
+                              type="text"
+                              value={slot.batch || ''}
+                              onChange={(e) =>
+                                handleUpdateSlot(dIdx, slot.id, 'batch', e.target.value)
+                              }
+                              placeholder="Batch (All)"
+                              className="w-20 bg-slate-800 text-pink-200 font-mono font-semibold py-1 px-1.5 rounded border border-pink-700/50 text-xs focus:outline-none focus:border-pink-500 text-center"
+                              title="Lab Group / Batch (e.g. Q1, Q2, All)"
                             />
                           </div>
 

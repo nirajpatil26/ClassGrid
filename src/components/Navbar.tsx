@@ -1,8 +1,6 @@
 import React from 'react';
-import { Calendar, Layers, Upload, Settings } from 'lucide-react';
+import { Calendar, Layers, Upload, Settings, Users } from 'lucide-react';
 import type { Division } from '../types/timetable';
-
-
 
 interface NavbarProps {
   institution?: string;
@@ -10,6 +8,9 @@ interface NavbarProps {
   divisions: Division[];
   activeDivisionId: string;
   onSelectDivision: (id: string) => void;
+  availableGroups?: string[];
+  activeGroupId?: string;
+  onSelectGroup?: (group: string) => void;
   onOpenUpload: () => void;
   onOpenSettings: () => void;
 }
@@ -20,6 +21,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   divisions,
   activeDivisionId,
   onSelectDivision,
+  availableGroups = [],
+  activeGroupId = 'All',
+  onSelectGroup,
   onOpenUpload,
   onOpenSettings,
 }) => {
@@ -62,21 +66,48 @@ export const Navbar: React.FC<NavbarProps> = ({
         {/* Right: Division Selector & Actions */}
         <div className="flex items-center gap-2 shrink-0">
           {divisions.length > 0 && (
-            <div className="relative flex items-center">
-              <Layers className="w-3.5 h-3.5 text-fuchsia-400 absolute left-2.5 pointer-events-none" />
-              <select
-                value={activeDivisionId}
-                onChange={(e) => onSelectDivision(e.target.value)}
-                className="pl-8 pr-7 py-1.5 text-xs font-semibold rounded-lg bg-[#120f1f] border border-fuchsia-900/50 text-fuchsia-100 focus:outline-none focus:border-fuchsia-500 appearance-none cursor-pointer hover:bg-fuchsia-950/40 transition-colors shadow-2xs"
-                aria-label="Select Division"
-              >
-                {divisions.map((div) => (
-                  <option key={div.id} value={div.id} className="bg-[#120f1f] text-slate-100">
-                    {div.name}
-                  </option>
-                ))}
-              </select>
-              <div className="pointer-events-none absolute right-2 text-fuchsia-400 text-[10px]">▼</div>
+            <div className="flex items-center gap-1.5">
+              {/* Division Selector */}
+              <div className="relative flex items-center">
+                <Layers className="w-3.5 h-3.5 text-fuchsia-400 absolute left-2.5 pointer-events-none" />
+                <select
+                  value={activeDivisionId}
+                  onChange={(e) => onSelectDivision(e.target.value)}
+                  className="pl-8 pr-7 py-1.5 text-xs font-semibold rounded-lg bg-[#120f1f] border border-fuchsia-900/50 text-fuchsia-100 focus:outline-none focus:border-fuchsia-500 appearance-none cursor-pointer hover:bg-fuchsia-950/40 transition-colors shadow-2xs"
+                  aria-label="Select Division"
+                >
+                  {divisions.map((div) => (
+                    <option key={div.id} value={div.id} className="bg-[#120f1f] text-slate-100">
+                      {div.name}
+                    </option>
+                  ))}
+                </select>
+                <div className="pointer-events-none absolute right-2 text-fuchsia-400 text-[10px]">▼</div>
+              </div>
+
+              {/* Lab Group / Batch Selector (e.g. Q1, Q2, Q3) */}
+              {availableGroups.length > 0 && (
+                <div className="relative flex items-center">
+                  <Users className="w-3.5 h-3.5 text-pink-400 absolute left-2.5 pointer-events-none" />
+                  <select
+                    value={activeGroupId}
+                    onChange={(e) => onSelectGroup?.(e.target.value)}
+                    className="pl-8 pr-7 py-1.5 text-xs font-bold rounded-lg bg-[#150d24] border border-pink-700/60 text-pink-200 focus:outline-none focus:border-pink-500 appearance-none cursor-pointer hover:bg-pink-950/40 transition-colors shadow-[0_0_10px_rgba(244,114,182,0.15)]"
+                    aria-label="Select Lab Group / Batch"
+                    title="Select your practical lab group"
+                  >
+                    <option value="All" className="bg-[#120f1f] text-slate-100 font-semibold">
+                      All Batches
+                    </option>
+                    {availableGroups.map((grp) => (
+                      <option key={grp} value={grp} className="bg-[#120f1f] text-pink-200 font-bold">
+                        Group {grp}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="pointer-events-none absolute right-2 text-pink-400 text-[10px]">▼</div>
+                </div>
+              )}
             </div>
           )}
 

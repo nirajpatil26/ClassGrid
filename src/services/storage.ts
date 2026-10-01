@@ -11,6 +11,7 @@ const STORAGE_KEYS = {
   TIMETABLES: 'clg_timetables_v1',
   ACTIVE_TIMETABLE_ID: 'clg_active_timetable_id_v1',
   ACTIVE_DIVISION_ID: 'clg_active_div_id_v1',
+  ACTIVE_GROUP_ID: 'clg_active_group_id_v1',
   ATTENDANCE: 'clg_attendance_records_v1',
   LECTURE_NOTES: 'clg_lecture_notes_v1',
   SETTINGS: 'clg_app_settings_v1',
@@ -90,6 +91,14 @@ export const StorageService = {
 
   setActiveDivisionId(id: string): void {
     localStorage.setItem(STORAGE_KEYS.ACTIVE_DIVISION_ID, id);
+  },
+
+  getActiveGroupId(): string {
+    return localStorage.getItem(STORAGE_KEYS.ACTIVE_GROUP_ID) || 'All';
+  },
+
+  setActiveGroupId(group: string): void {
+    localStorage.setItem(STORAGE_KEYS.ACTIVE_GROUP_ID, group);
   },
 
   // --- Attendance ---

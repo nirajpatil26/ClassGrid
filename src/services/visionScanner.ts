@@ -1,6 +1,7 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import type { Timetable, TimetableSlot, Division, DayOfWeek, SlotType } from '../types/timetable';
 import { DEFAULT_BACKEND_GEMINI_KEY, type VisionProvider } from './storage';
+import { detectSlotBatch } from '../utils/groupUtils';
 
 // Ensure PDF.js worker is ready
 pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
@@ -99,6 +100,16 @@ Your task is to analyze the timetable grid and accurately identify:
 5. CLASSROOM / LAB NUMBER: Look carefully inside each timetable cell or footnote for room identifiers (e.g. "Room 302", "LH-1", "Lab 4", "Hall 201"). This is crucial so students know which classroom to go to!
 6. Slot Type: "lecture", "lab", "tutorial", or "break".
 7. Faculty: Teacher's name or initials if present.
+8. BATCH / PRACTICAL GROUP (CRITICAL):
+   - In college timetables, numbers or suffixes attached to subjects (e.g. "DECO-1" and "DECO-2", "CN-1" and "CN-2", "Q1", "Q2", "B1", "B2") DO NOT mean they are different subjects!
+   - They represent PRACTICAL LAB GROUPS / BATCHES inside the division!
+   - For example, if Division is "Q", "DECO-1" is Group Q1, and "DECO-2" is Group Q2.
+   - For every such slot:
+     * Set clean "subjectCode": "DECO"
+     * Set "subjectName": "DECO Lab"
+     * Set "type": "lab"
+     * Set "batch": "Q1" (for DECO-1) or "Q2" (for DECO-2)
+   - For regular lectures attended by all students, set "batch": "All".
 
 CRITICAL REQUIREMENTS FOR FULL-WEEK & MULTI-PAGE EXTRACTION:
 - MULTI-PAGE DOCUMENTS: The user document may contain MULTIPLE pages. Often, each page represents a separate day of the week (e.g. Page 1 = Monday, Page 2 = Tuesday, Page 3 = Wednesday, Page 4 = Thursday, Page 5 = Friday, Page 6 = Saturday).
@@ -112,7 +123,7 @@ Return ONLY a valid JSON object strictly matching this schema with NO extra mark
   "institution": "College Name",
   "divisions": [
     {
-      "name": "Division A",
+      "name": "Division Q",
       "slots": [
         {
           "day": "Monday",
@@ -122,7 +133,19 @@ Return ONLY a valid JSON object strictly matching this schema with NO extra mark
           "subjectName": "Data Structures",
           "room": "Room 302",
           "faculty": "Prof. Sharma",
-          "type": "lecture"
+          "type": "lecture",
+          "batch": "All"
+        },
+        {
+          "day": "Monday",
+          "startTime": "11:15",
+          "endTime": "13:15",
+          "subjectCode": "DECO",
+          "subjectName": "DECO Lab",
+          "room": "Lab 2",
+          "faculty": "Prof. Patel",
+          "type": "lab",
+          "batch": "Q1"
         }
       ]
     }
@@ -659,8 +682,17 @@ export const VisionScannerService = {
           if (matched) day = matched;
         }
 
+        const batchInfo = detectSlotBatch(
+          String(rawSlot?.subjectCode || 'SUB'),
+          String(rawSlot?.subjectName || rawSlot?.subjectCode || 'General Class'),
+          rawSlot?.batch ? String(rawSlot.batch) : undefined,
+          divName
+        );
+
         const validTypes: SlotType[] = ['lecture', 'lab', 'tutorial', 'break'];
-        const slotType: SlotType = validTypes.includes(rawSlot?.type)
+        const slotType: SlotType = batchInfo.isLab
+          ? 'lab'
+          : validTypes.includes(rawSlot?.type)
           ? rawSlot.type
           : 'lecture';
 
@@ -669,14 +701,12 @@ export const VisionScannerService = {
           day,
           startTime: String(rawSlot?.startTime || '09:00').trim(),
           endTime: String(rawSlot?.endTime || '10:00').trim(),
-          subjectCode: String(rawSlot?.subjectCode || 'SUB').trim(),
-          subjectName: String(
-            rawSlot?.subjectName || rawSlot?.subjectCode || 'General Class'
-          ).trim(),
+          subjectCode: batchInfo.subjectCode,
+          subjectName: batchInfo.subjectName,
           room: String(rawSlot?.room || 'Room 302').trim(),
           faculty: rawSlot?.faculty ? String(rawSlot.faculty).trim() : undefined,
           type: slotType,
-          batch: rawSlot?.batch ? String(rawSlot.batch).trim() : undefined,
+          batch: batchInfo.batch,
         };
       });
 
