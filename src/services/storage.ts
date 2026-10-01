@@ -7,8 +7,6 @@ import type {
   AttendanceStatus 
 } from '../types/timetable';
 
-import { SAMPLE_TIMETABLE } from '../data/sampleTimetable';
-
 const STORAGE_KEYS = {
   TIMETABLES: 'clg_timetables_v1',
   ACTIVE_TIMETABLE_ID: 'clg_active_timetable_id_v1',
@@ -42,14 +40,17 @@ export const StorageService = {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.TIMETABLES);
       if (!data) {
-        // Initialize with sample timetable
-        this.saveTimetables([SAMPLE_TIMETABLE]);
-        return [SAMPLE_TIMETABLE];
+        return [];
       }
-      return JSON.parse(data);
+      const parsed = JSON.parse(data);
+      // If user only has the legacy sample timetable, treat as empty so new/existing users start blank
+      if (Array.isArray(parsed) && parsed.length === 1 && parsed[0].id === 'sample-timetable-1') {
+        return [];
+      }
+      return Array.isArray(parsed) ? parsed : [];
     } catch (e) {
       console.error('Failed to load timetables from localStorage', e);
-      return [SAMPLE_TIMETABLE];
+      return [];
     }
   },
 
@@ -69,7 +70,10 @@ export const StorageService = {
   },
 
   getActiveTimetableId(): string {
-    return localStorage.getItem(STORAGE_KEYS.ACTIVE_TIMETABLE_ID) || SAMPLE_TIMETABLE.id;
+    const saved = localStorage.getItem(STORAGE_KEYS.ACTIVE_TIMETABLE_ID);
+    if (saved && saved !== 'sample-timetable-1') return saved;
+    const all = this.getTimetables();
+    return all[0]?.id || '';
   },
 
   setActiveTimetableId(id: string): void {
@@ -81,7 +85,7 @@ export const StorageService = {
     if (saved) return saved;
     const timetables = this.getTimetables();
     const active = timetables.find((t) => t.id === this.getActiveTimetableId()) || timetables[0];
-    return active?.divisions[0]?.id || 'div-a';
+    return active?.divisions[0]?.id || '';
   },
 
   setActiveDivisionId(id: string): void {
