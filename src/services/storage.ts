@@ -28,9 +28,8 @@ export interface AppSettings {
   customEndpoint?: string;
 }
 
-// Built-in backend keys for seamless zero-config scanning (Gemini Key Pool + Groq Failover)
+// Built-in backend keys for seamless zero-config scanning (Gemini + Groq Failover)
 const BUILTIN_ENCODED_GEMINI_KEYS = [
-  'QVEuQWI4Uk42S3ZMckVLZEpNZUE2dTViMEdjUnMxbjg1ZzdlWThvUkZnRDRYV3ZndW9aQkE=',
   'QVEuQWI4Uk42TEE1WWhJaXFWcGY4dUN6emtETXlueklTU2llRFNlMlpWSGllSDVwYmxZUlE=',
 ];
 
