@@ -1,6 +1,11 @@
 import * as pdfjsLib from 'pdfjs-dist';
 import type { Timetable, TimetableSlot, Division, DayOfWeek, SlotType } from '../types/timetable';
-import { DEFAULT_BACKEND_GEMINI_KEY, type VisionProvider } from './storage';
+import { 
+  DEFAULT_BACKEND_GEMINI_KEY, 
+  BACKEND_GEMINI_KEYS, 
+  DEFAULT_BACKEND_GROQ_KEY, 
+  type VisionProvider 
+} from './storage';
 import { detectSlotBatch } from '../utils/groupUtils';
 
 // Ensure PDF.js worker is ready
@@ -202,9 +207,9 @@ export const VisionScannerService = {
     const images: string[] = [];
 
     for (let pageNum = 1; pageNum <= pagesToRender; pageNum++) {
-      onProgress?.(`Rendering timetable page ${pageNum} of ${pagesToRender} into high-res frame...`);
+      onProgress?.(`Rendering timetable page ${pageNum} of ${pagesToRender} into optimized frame...`);
       const page = await pdf.getPage(pageNum);
-      const viewport = page.getViewport({ scale: 2.0 });
+      const viewport = page.getViewport({ scale: 1.35 });
 
       const canvas = document.createElement('canvas');
       canvas.width = viewport.width;
@@ -219,7 +224,7 @@ export const VisionScannerService = {
         viewport,
       }).promise;
 
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
       images.push(dataUrl);
     }
 
@@ -654,6 +659,182 @@ export const VisionScannerService = {
           'Failed to communicate with the vision model. Check your internet connection or API key.',
       };
     }
+  },
+
+  /**
+   * Fast Digital PDF Text Extractor
+   * Checks if the PDF contains machine-readable text to skip heavy vision rendering.
+   */
+  async extractPdfText(file: File): Promise<{ text: string; hasDigitalText: boolean }> {
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({
+        data: arrayBuffer,
+        useSystemFonts: true,
+      }).promise;
+
+      let combined = '';
+      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        const page = await pdf.getPage(pageNum);
+        const textContent = await page.getTextContent();
+        for (const item of textContent.items as any[]) {
+          if (item?.str) combined += item.str + ' ';
+        }
+        combined += '\n';
+      }
+
+      const clean = combined.trim();
+      const hasDays = /\b(mon|tue|wed|thu|fri|sat|monday|tuesday|wednesday|thursday|friday|saturday)\b/i.test(clean);
+      const hasTimes = /\b\d{1,2}[:.]\d{2}\b/.test(clean);
+      const hasDigitalText = clean.length > 80 && (hasDays || hasTimes);
+
+      return { text: clean, hasDigitalText };
+    } catch {
+      return { text: '', hasDigitalText: false };
+    }
+  },
+
+  /**
+   * Process digital timetable text with Groq Cloud LPU
+   * Runs in ~1 second, consumes zero vision tokens, and has generous free rate limits.
+   */
+  async scanWithGroqText(
+    text: string,
+    apiKey: string,
+    fileName: string = 'Timetable',
+    onProgress?: (msg: string) => void
+  ): Promise<VisionScanResult> {
+    onProgress?.('Processing timetable with Groq LPU engine (~1s)...');
+
+    const prompt = `${SYSTEM_TIMETABLE_PROMPT}\n\nHere is the text extracted from the college timetable document:\n\n${text.substring(0, 30000)}\n\nExtract all divisions, days, slots, subjects, rooms, faculty, and lab groups into the required JSON format.`;
+
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'openai/gpt-oss-120b',
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role: 'system',
+            content: 'You extract college timetables into structured JSON according to the schema provided. Only output valid JSON matching the format.'
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        temperature: 0.1,
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err?.error?.message || `Groq HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    const rawContent = data.choices?.[0]?.message?.content;
+    if (!rawContent) throw new Error('No content returned by Groq.');
+
+    const jsonStart = rawContent.indexOf('{');
+    const jsonEnd = rawContent.lastIndexOf('}');
+    if (jsonStart === -1 || jsonEnd === -1) {
+      throw new Error('Groq response did not contain a valid JSON schedule.');
+    }
+
+    const cleanJson = rawContent.substring(jsonStart, jsonEnd + 1);
+    const parsedData = JSON.parse(cleanJson);
+    const timetable = this.normalizeExtractedData(parsedData, fileName);
+
+    return {
+      success: true,
+      timetable,
+    };
+  },
+
+  /**
+   * Resilient Multi-Key Auto-Failover Scanner
+   * Combines digital text extraction (Groq) with Gemini Key Pool failover.
+   */
+  async scanWithAutoFailover(
+    file: File,
+    onProgress?: (msg: string) => void
+  ): Promise<VisionScanResult> {
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+    const groqKey = DEFAULT_BACKEND_GROQ_KEY;
+    const geminiKeys = BACKEND_GEMINI_KEYS.length > 0 ? BACKEND_GEMINI_KEYS : [DEFAULT_BACKEND_GEMINI_KEY];
+
+    // --- PHASE 1: Check if PDF has digital text (Instant 90% token & quota saver) ---
+    if (isPdf) {
+      onProgress?.('Inspecting document layout...');
+      const { text, hasDigitalText } = await this.extractPdfText(file);
+
+      if (hasDigitalText) {
+        if (groqKey) {
+          try {
+            onProgress?.('Digital text detected! Running fast Groq analysis (~1s)...');
+            const result = await this.scanWithGroqText(text, groqKey, file.name, onProgress);
+            if (result.success && result.timetable && result.timetable.divisions.some(d => d.slots.length > 0)) {
+              return result;
+            }
+          } catch (groqErr) {
+            console.warn('Groq text scan failed, trying Gemini key pool...', groqErr);
+          }
+        }
+      }
+    }
+
+    // --- PHASE 2: Gemini Key Pool with Automatic Failover (for images or visual PDFs) ---
+    let lastError = '';
+    for (let i = 0; i < geminiKeys.length; i++) {
+      const key = geminiKeys[i];
+      const keyLabel = i === 0 ? 'Primary Gemini 3.8' : `Backup Gemini Key (${i + 1})`;
+      onProgress?.(`Analyzing timetable with ${keyLabel}...`);
+
+      try {
+        const result = await this.scanWithGemini(file, key, 'gemini-3.8-flash', onProgress);
+        if (result.success && result.timetable) {
+          return result;
+        }
+
+        // Check if rate limited / quota exceeded
+        if (result.error && (result.error.toLowerCase().includes('quota') || result.error.includes('429') || result.error.toLowerCase().includes('limit'))) {
+          onProgress?.(`Rate limit on Key ${i + 1}. Auto-switching to backup Gemini key...`);
+          lastError = result.error;
+          continue; // try next key in pool!
+        } else if (result.error) {
+          lastError = result.error;
+        }
+      } catch (err: any) {
+        lastError = err.message || 'Network error';
+        onProgress?.(`Notice on Key ${i + 1}, switching to next key in pool...`);
+      }
+    }
+
+    // --- PHASE 3: Last Resort Fallback to Groq if any text was extractable ---
+    if (isPdf && groqKey) {
+      try {
+        const { text } = await this.extractPdfText(file);
+        if (text && text.length > 50) {
+          onProgress?.('Falling back to Groq LPU engine...');
+          const result = await this.scanWithGroqText(text, groqKey, file.name, onProgress);
+          if (result.success && result.timetable) {
+            return result;
+          }
+        }
+      } catch (e: any) {
+        lastError = e.message || lastError;
+      }
+    }
+
+    return {
+      success: false,
+      error: lastError || 'All AI engines were busy. Please try again in 30 seconds.',
+    };
   },
 
   normalizeExtractedData(raw: any, fileName: string): Timetable {

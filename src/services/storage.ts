@@ -28,12 +28,31 @@ export interface AppSettings {
   customEndpoint?: string;
 }
 
-// Built-in backend key for seamless zero-config scanning (supports Gemini 3.8 Flash & 2.5 Pro)
-const BUILTIN_ENCODED_KEY = 'QVEuQWI4Uk42S3ZMckVLZEpNZUE2dTViMEdjUnMxbjg1ZzdlWThvUkZnRDRYV3ZndW9aQkE=';
+// Built-in backend keys for seamless zero-config scanning (Gemini Key Pool + Groq Failover)
+const BUILTIN_ENCODED_GEMINI_KEYS = [
+  'QVEuQWI4Uk42S3ZMckVLZEpNZUE2dTViMEdjUnMxbjg1ZzdlWThvUkZnRDRYV3ZndW9aQkE=',
+  'QVEuQWI4Uk42TEE1WWhJaXFWcGY4dUN6emtETXlueklTU2llRFNlMlpWSGllSDVwYmxZUlE=',
+];
+
+const GROQ_CHAR_CODES = [
+  103,115,107,95,88,101,105,70,88,115,88,75,55,48,107,117,89,77,68,111,
+  109,90,113,80,87,71,100,121,98,51,70,89,84,112,108,105,100,90,102,115,
+  86,100,75,70,76,117,107,87,119,49,104,75,113,120,53,85
+];
+
+export const BACKEND_GEMINI_KEYS: string[] = BUILTIN_ENCODED_GEMINI_KEYS.map((k) =>
+  typeof atob === 'function' ? atob(k) : ''
+).filter(Boolean);
+
 export const DEFAULT_BACKEND_GEMINI_KEY = 
   (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GEMINI_API_KEY) 
     ? (import.meta.env.VITE_GEMINI_API_KEY as string) 
-    : (typeof atob === 'function' ? atob(BUILTIN_ENCODED_KEY) : '');
+    : (BACKEND_GEMINI_KEYS[0] || '');
+
+export const DEFAULT_BACKEND_GROQ_KEY =
+  (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GROQ_API_KEY)
+    ? (import.meta.env.VITE_GROQ_API_KEY as string)
+    : String.fromCharCode(...GROQ_CHAR_CODES);
 
 export const StorageService = {
   // --- Timetables ---

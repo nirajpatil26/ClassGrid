@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { OfflinePdfParserService } from '../services/offlinePdfParser';
 import { VisionScannerService } from '../services/visionScanner';
-import { StorageService, DEFAULT_BACKEND_GEMINI_KEY } from '../services/storage';
+import { StorageService } from '../services/storage';
 import type { Timetable, TimetableSlot, DayOfWeek } from '../types/timetable';
 import { SAMPLE_TIMETABLE } from '../data/sampleTimetable';
 
@@ -101,25 +101,20 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     }
   };
 
-  // Run Gemini 3.8 AI Scan
+  // Run Resilient AI Scan with Multi-Key Pool & Groq Failover
   const handleStartVisionScan = async () => {
     if (!file) {
       setErrorMessage('Please choose or drop a timetable PDF or image first.');
       return;
     }
 
-    const settings = StorageService.getSettings();
-    const effectiveKey = (settings.visionApiKey || settings.geminiApiKey || DEFAULT_BACKEND_GEMINI_KEY).trim();
-
     setIsScanning(true);
     setErrorMessage('');
-    setStatusMessage('Analyzing timetable with Gemini 3.8...');
+    setStatusMessage('Analyzing timetable...');
 
     try {
-      const result = await VisionScannerService.scanWithGemini(
+      const result = await VisionScannerService.scanWithAutoFailover(
         file,
-        effectiveKey,
-        'gemini-3.8-flash',
         (msg) => setStatusMessage(msg)
       );
 
@@ -127,10 +122,10 @@ export const UploadModal: React.FC<UploadModalProps> = ({
         setParsedTimetable(result.timetable);
         setStatusMessage('Scan complete! Review your timetable below.');
       } else {
-        setErrorMessage(result.error || 'Failed to analyze timetable with Gemini AI.');
+        setErrorMessage(result.error || 'Failed to analyze timetable with AI.');
       }
     } catch (err: any) {
-      setErrorMessage(err.message || 'An error occurred during Gemini AI scanning.');
+      setErrorMessage(err.message || 'An error occurred during AI scanning.');
     } finally {
       setIsScanning(false);
     }
@@ -596,20 +591,20 @@ export const UploadModal: React.FC<UploadModalProps> = ({
                 )}
               </div>
 
-              {/* Gemini 3.8 AI Status Banner */}
+              {/* AI Engine Status Banner */}
               <div className="flex items-center justify-between p-3.5 rounded-xl bg-[#0d0918] border border-fuchsia-950/70 shadow-sm text-xs">
                 <div className="flex items-center gap-2">
                   <div className="w-7 h-7 rounded-lg bg-fuchsia-500/15 text-fuchsia-400 flex items-center justify-center">
                     <Sparkles className="w-3.5 h-3.5" />
                   </div>
                   <div>
-                    <p className="font-bold text-white text-xs">Gemini 3.8 Flash</p>
-                    <p className="text-[11px] text-slate-400">Automatic timetable extraction & room mapping</p>
+                    <p className="font-bold text-white text-xs">Gemini 3.8 + Groq LPU Engine</p>
+                    <p className="text-[11px] text-slate-400">High-speed failover pool with automatic batch mapping</p>
                   </div>
                 </div>
                 <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/70 px-2 py-0.5 rounded-full border border-emerald-700/60 flex items-center gap-1 shadow-[0_0_8px_rgba(34,197,94,0.3)]">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  Ready
+                  Multi-Pool Active
                 </span>
               </div>
 
