@@ -10,6 +10,7 @@ import { LectureNoteModal } from './components/LectureNoteModal';
 import { UploadModal } from './components/UploadModal';
 import { SettingsModal } from './components/SettingsModal';
 import { StorageService } from './services/storage';
+import { AuthService, type GoogleUserProfile } from './services/auth';
 import { getDivisionGroups, filterDivisionByGroup } from './utils/groupUtils';
 import type { 
   Timetable, 
@@ -22,6 +23,9 @@ import { CalendarDays, MapPin, CheckSquare, BookOpen, Upload } from 'lucide-reac
 
 
 export const App: React.FC = () => {
+  // --- User Authentication State (Google One-Tap) ---
+  const [currentUser, setCurrentUser] = useState<GoogleUserProfile | null>(() => AuthService.getUser());
+
   // --- Core State ---
   const [timetables, setTimetables] = useState<Timetable[]>(() => StorageService.getTimetables());
   const [activeTimetableId, setActiveTimetableId] = useState<string>(() => StorageService.getActiveTimetableId());
@@ -31,6 +35,38 @@ export const App: React.FC = () => {
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(() => StorageService.getAttendance());
   const [lectureNotes, setLectureNotes] = useState<LectureNote[]>(() => StorageService.getNotes());
   const [targetPercentage, setTargetPercentage] = useState<number>(() => StorageService.getSettings().targetAttendance || 75);
+
+  // Initialize permanent IndexedDB storage and Google One-Tap
+  useEffect(() => {
+    // 1. Restore from permanent IndexedDB database if browser wiped localStorage
+    StorageService.initPersistentStorage().then((restored) => {
+      if (restored) {
+        setTimetables(StorageService.getTimetables());
+        setActiveTimetableId(StorageService.getActiveTimetableId());
+        setActiveDivisionId(StorageService.getActiveDivisionId());
+        setActiveGroupId(StorageService.getActiveGroupId());
+        setAttendanceRecords(StorageService.getAttendance());
+        setLectureNotes(StorageService.getNotes());
+      }
+    });
+
+    // 2. Initialize Google One-Tap & cloud sync
+    AuthService.initGoogleAuth((user) => {
+      setCurrentUser(user);
+      if (user) {
+        StorageService.syncOnLogin(user).then(({ imported }) => {
+          if (imported) {
+            setTimetables(StorageService.getTimetables());
+            setActiveTimetableId(StorageService.getActiveTimetableId());
+            setActiveDivisionId(StorageService.getActiveDivisionId());
+            setActiveGroupId(StorageService.getActiveGroupId());
+            setAttendanceRecords(StorageService.getAttendance());
+            setLectureNotes(StorageService.getNotes());
+          }
+        });
+      }
+    });
+  }, []);
 
   // Navigation State
   const [activeTab, setActiveTab] = useState<ActiveTab>('today');
@@ -142,6 +178,12 @@ export const App: React.FC = () => {
         onSelectGroup={handleSelectGroup}
         onOpenUpload={() => setIsUploadOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        currentUser={currentUser}
+        onSignIn={() => AuthService.promptSignIn()}
+        onSignOut={() => {
+          AuthService.signOut();
+          setCurrentUser(null);
+        }}
       />
 
       {/* Main Container */}

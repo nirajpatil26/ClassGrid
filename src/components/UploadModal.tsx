@@ -119,8 +119,14 @@ export const UploadModal: React.FC<UploadModalProps> = ({
       );
 
       if (result.success && result.timetable) {
+        // Immediately persist to storage so quitting browser never erases scan
+        StorageService.addOrUpdateTimetable(result.timetable);
+        StorageService.setActiveTimetableId(result.timetable.id);
+        if (result.timetable.divisions[0]) {
+          StorageService.setActiveDivisionId(result.timetable.divisions[0].id);
+        }
         setParsedTimetable(result.timetable);
-        setStatusMessage('Scan complete! Review your timetable below.');
+        setStatusMessage('Scan complete! Timetable saved. Review your details below.');
       } else {
         setErrorMessage(result.error || 'Failed to analyze timetable with AI.');
       }
@@ -151,8 +157,14 @@ export const UploadModal: React.FC<UploadModalProps> = ({
       const result = await OfflinePdfParserService.parsePdfOffline(file);
 
       if (result.success && result.timetable) {
+        // Immediately persist to storage so quitting browser never erases scan
+        StorageService.addOrUpdateTimetable(result.timetable);
+        StorageService.setActiveTimetableId(result.timetable.id);
+        if (result.timetable.divisions[0]) {
+          StorageService.setActiveDivisionId(result.timetable.divisions[0].id);
+        }
         setParsedTimetable(result.timetable);
-        setStatusMessage('Scan complete! Review your timetable below.');
+        setStatusMessage('Scan complete! Timetable saved. Review your details below.');
       } else {
         setErrorMessage(result.error || 'Failed to read PDF offline.');
       }
@@ -303,7 +315,12 @@ export const UploadModal: React.FC<UploadModalProps> = ({
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={() => {
+              if (parsedTimetable) {
+                onTimetableImported(parsedTimetable);
+              }
+              onClose();
+            }}
             className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-fuchsia-950/40 border border-transparent hover:border-fuchsia-900/40 transition-colors"
           >
             <X className="w-4 h-4" />

@@ -6,6 +6,7 @@ import type {
   SubjectStats, 
   AttendanceStatus 
 } from '../types/timetable';
+import { AuthService, type GoogleUserProfile } from './auth';
 
 const STORAGE_KEYS = {
   TIMETABLES: 'clg_timetables_v1',
@@ -16,6 +17,64 @@ const STORAGE_KEYS = {
   LECTURE_NOTES: 'clg_lecture_notes_v1',
   SETTINGS: 'clg_app_settings_v1',
 };
+
+// --- IndexedDB Permanent Storage Layer ---
+const IDB_NAME = 'ClassGrid_IDB_v1';
+const IDB_STORE = 'app_state';
+
+function openIDB(): Promise<IDBDatabase | null> {
+  if (typeof window === 'undefined' || !window.indexedDB) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    try {
+      const req = indexedDB.open(IDB_NAME, 1);
+      req.onupgradeneeded = () => {
+        if (!req.result.objectStoreNames.contains(IDB_STORE)) {
+          req.result.createObjectStore(IDB_STORE);
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+async function idbGet<T>(key: string): Promise<T | null> {
+  const db = await openIDB();
+  if (!db) return null;
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(IDB_STORE, 'readonly');
+      const req = tx.objectStore(IDB_STORE).get(key);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+async function idbSet(key: string, value: any): Promise<void> {
+  const db = await openIDB();
+  if (!db) return;
+  try {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put(value, key);
+  } catch {}
+}
+
+let syncTimeout: any = null;
+function scheduleCloudSync() {
+  if (typeof window === 'undefined') return;
+  clearTimeout(syncTimeout);
+  syncTimeout = setTimeout(() => {
+    const user = AuthService.getUser();
+    if (user?.id) {
+      StorageService.pushToCloud(user.id).catch((e) => console.warn('Cloud sync error:', e));
+    }
+  }, 1200);
+}
 
 export type VisionProvider = 'gemini' | 'groq' | 'openrouter' | 'ollama' | 'custom';
 
@@ -75,6 +134,7 @@ export const StorageService = {
 
   saveTimetables(timetables: Timetable[]): void {
     localStorage.setItem(STORAGE_KEYS.TIMETABLES, JSON.stringify(timetables));
+    this.persistFullSnapshot();
   },
 
   addOrUpdateTimetable(timetable: Timetable): void {
@@ -131,6 +191,7 @@ export const StorageService = {
 
   saveAttendance(records: AttendanceRecord[]): void {
     localStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(records));
+    this.persistFullSnapshot();
   },
 
   recordAttendance(
@@ -182,6 +243,7 @@ export const StorageService = {
 
   saveNotes(notes: LectureNote[]): void {
     localStorage.setItem(STORAGE_KEYS.LECTURE_NOTES, JSON.stringify(notes));
+    this.persistFullSnapshot();
   },
 
   saveLectureNote(note: Omit<LectureNote, 'id' | 'createdAt'>): LectureNote {
@@ -214,6 +276,123 @@ export const StorageService = {
   deleteLectureNote(id: string): void {
     const notes = this.getNotes().filter((n) => n.id !== id);
     this.saveNotes(notes);
+  },
+
+  // --- Permanent Snapshot & Cloud Sync Engine ---
+  async persistFullSnapshot(): Promise<void> {
+    const snapshot = {
+      timetables: this.getTimetables(),
+      activeTimetableId: this.getActiveTimetableId(),
+      activeDivisionId: this.getActiveDivisionId(),
+      activeGroupId: this.getActiveGroupId(),
+      attendance: this.getAttendance(),
+      notes: this.getNotes(),
+      settings: this.getSettings(),
+      updatedAt: new Date().toISOString(),
+    };
+    await idbSet('classgrid_full_backup', snapshot);
+    scheduleCloudSync();
+  },
+
+  async initPersistentStorage(): Promise<boolean> {
+    // 1. Request persistent storage permission from browser OS (Chrome/Safari/Edge/Firefox)
+    if (typeof navigator !== 'undefined' && navigator.storage && navigator.storage.persist) {
+      try {
+        await navigator.storage.persist();
+      } catch {}
+    }
+
+    // 2. Check if localStorage was cleared on browser close, restore from IndexedDB
+    const existing = localStorage.getItem(STORAGE_KEYS.TIMETABLES);
+    if (!existing || existing === '[]') {
+      const backup = await idbGet<any>('classgrid_full_backup');
+      if (backup && Array.isArray(backup.timetables) && backup.timetables.length > 0) {
+        console.info('Restored timetables from permanent IndexedDB database');
+        localStorage.setItem(STORAGE_KEYS.TIMETABLES, JSON.stringify(backup.timetables));
+        if (backup.attendance) localStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(backup.attendance));
+        if (backup.notes) localStorage.setItem(STORAGE_KEYS.LECTURE_NOTES, JSON.stringify(backup.notes));
+        if (backup.activeTimetableId) localStorage.setItem(STORAGE_KEYS.ACTIVE_TIMETABLE_ID, backup.activeTimetableId);
+        if (backup.activeDivisionId) localStorage.setItem(STORAGE_KEYS.ACTIVE_DIVISION_ID, backup.activeDivisionId);
+        if (backup.activeGroupId) localStorage.setItem(STORAGE_KEYS.ACTIVE_GROUP_ID, backup.activeGroupId);
+        return true;
+      }
+    }
+
+    // 3. If user is logged in with Google, sync with cloud
+    const user = AuthService.getUser();
+    if (user?.id) {
+      this.syncOnLogin(user).catch(() => {});
+    }
+
+    return false;
+  },
+
+  async pushToCloud(userId: string): Promise<boolean> {
+    try {
+      const data = {
+        timetables: this.getTimetables(),
+        activeTimetableId: this.getActiveTimetableId(),
+        activeDivisionId: this.getActiveDivisionId(),
+        activeGroupId: this.getActiveGroupId(),
+        attendance: this.getAttendance(),
+        notes: this.getNotes(),
+        settings: this.getSettings(),
+      };
+
+      const res = await fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, data }),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  },
+
+  async syncOnLogin(user: GoogleUserProfile): Promise<{ imported: boolean }> {
+    try {
+      const res = await fetch(`/api/sync?userId=${encodeURIComponent(user.id)}`);
+      if (!res.ok) return { imported: false };
+      const json = await res.json();
+      const cloudData = json?.data;
+
+      if (cloudData && Array.isArray(cloudData.timetables) && cloudData.timetables.length > 0) {
+        const localTimetables = this.getTimetables();
+        // If local is blank, adopt cloud data immediately
+        if (localTimetables.length === 0) {
+          localStorage.setItem(STORAGE_KEYS.TIMETABLES, JSON.stringify(cloudData.timetables));
+          if (cloudData.activeTimetableId) localStorage.setItem(STORAGE_KEYS.ACTIVE_TIMETABLE_ID, cloudData.activeTimetableId);
+          if (cloudData.activeDivisionId) localStorage.setItem(STORAGE_KEYS.ACTIVE_DIVISION_ID, cloudData.activeDivisionId);
+          if (cloudData.activeGroupId) localStorage.setItem(STORAGE_KEYS.ACTIVE_GROUP_ID, cloudData.activeGroupId);
+          if (cloudData.attendance) localStorage.setItem(STORAGE_KEYS.ATTENDANCE, JSON.stringify(cloudData.attendance));
+          if (cloudData.notes) localStorage.setItem(STORAGE_KEYS.LECTURE_NOTES, JSON.stringify(cloudData.notes));
+          await this.persistFullSnapshot();
+          return { imported: true };
+        } else {
+          // Merge timetables by ID
+          const merged = [...localTimetables];
+          let added = false;
+          cloudData.timetables.forEach((ct: Timetable) => {
+            if (!merged.some((lt) => lt.id === ct.id)) {
+              merged.push(ct);
+              added = true;
+            }
+          });
+          if (added) {
+            localStorage.setItem(STORAGE_KEYS.TIMETABLES, JSON.stringify(merged));
+            await this.persistFullSnapshot();
+            return { imported: true };
+          }
+        }
+      } else {
+        // Cloud has no data yet, push local to cloud!
+        await this.pushToCloud(user.id);
+      }
+      return { imported: false };
+    } catch {
+      return { imported: false };
+    }
   },
 
   // --- Settings ---
