@@ -533,6 +533,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
                   </div>
 
                   {/* Attendance Marker Row */}
+                  {slot.type !== 'break' && (
                   <div className="mt-3 pt-3 border-t border-fuchsia-950/60 flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5">
                       <span className="text-[11px] font-medium text-slate-400 mr-1 hidden sm:inline">
@@ -618,6 +619,7 @@ export const TodayView: React.FC<TodayViewProps> = ({
                       <span>{note ? 'Edit Note' : '+ Add Note'}</span>
                     </button>
                   </div>
+                  )}
 
                   {/* If Lecture Note exists: Display preview with date */}
                   {note && (

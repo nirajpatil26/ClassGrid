@@ -116,6 +116,10 @@ Your task is to analyze the timetable grid and accurately identify:
      * Set "type": "lab"
      * Set "batch": "Q1" (for DECO-1) or "Q2" (for DECO-2)
    - For regular lectures attended by all students, set "batch": "All".
+9. LUNCH AND BREAKS (CRITICAL): 
+   - If a slot says "Lunch", "Break", "Recess", or similar, YOU MUST include it in the slots array.
+   - For these slots, set "subjectCode": "BREAK", "subjectName": "Lunch / Break", and strictly set "type": "break".
+   - NEVER classify a lunch or break as a "lecture".
 
 CRITICAL REQUIREMENTS FOR FULL-WEEK & MULTI-PAGE EXTRACTION:
 - ABSOLUTELY NO SKIPPING: You MUST extract EVERY SINGLE lecture, lab, and tutorial present in the image/document. Do NOT skip any slots or abbreviate your response.
