@@ -786,38 +786,27 @@ export const VisionScannerService = {
     const groqKey = DEFAULT_BACKEND_GROQ_KEY;
     const geminiKeys = BACKEND_GEMINI_KEYS.length > 0 ? BACKEND_GEMINI_KEYS : [DEFAULT_BACKEND_GEMINI_KEY];
 
-    // --- PHASE 1: Check if PDF has digital text (Instant 90% token & quota saver) ---
-    if (isPdf && groqKey) {
-      onProgress?.('Inspecting document layout...');
-      const { text, hasDigitalText } = await this.extractPdfText(file);
-
-      if (hasDigitalText || text.length > 40) {
-        try {
-          onProgress?.('Text detected! Running fast Groq analysis (~1s)...');
-          const result = await this.scanWithGroqText(text, groqKey, file.name, onProgress);
-          if (result.success && result.timetable && result.timetable.divisions.some(d => d.slots.length > 0)) {
-            return result;
-          }
-        } catch (groqErr) {
-          console.warn('Groq text scan failed, trying Gemini visual engine...', groqErr);
-        }
-      }
-    }
-
-    // --- PHASE 2: Gemini Key Pool with Automatic Failover (for images or visual PDFs) ---
+    // --- PHASE 1: Gemini Key Pool with Automatic Failover (for images or visual PDFs) ---
+    // Vision AI is highly prioritized because timetables are tabular grids.
+    // Text extraction destroys spatial layout, leading to terrible parsing by text models.
     let lastError = '';
     for (let i = 0; i < geminiKeys.length; i++) {
       const key = geminiKeys[i];
       const keyLabel = i === 0 ? 'Gemini AI Vision' : `Backup Gemini Key (${i + 1})`;
-      onProgress?.(`Analyzing timetable with ${keyLabel}...`);
+      onProgress?.(`Analyzing timetable grid with ${keyLabel}...`);
 
       try {
         const result = await this.scanWithGemini(file, key, 'gemini-3.8-flash', onProgress);
+        // Ensure Gemini extracted a reasonable number of slots before accepting it blindly
+        const totalSlots = result.timetable?.divisions.reduce((sum, d) => sum + d.slots.length, 0) || 0;
+        
         if (result.success && result.timetable) {
-          return result;
-        }
-
-        if (result.error) {
+          if (totalSlots > 2) {
+            return result;
+          } else {
+            lastError = `Extracted only ${totalSlots} classes. Trying backup method...`;
+          }
+        } else if (result.error) {
           lastError = result.error;
         }
       } catch (err: any) {
@@ -825,21 +814,24 @@ export const VisionScannerService = {
       }
     }
 
-    // --- PHASE 3: Last Resort Fallback to Groq if any text was extractable ---
+    // --- PHASE 2: Fallback to Groq Digital Text if Vision fails (e.g. Rate Limit) ---
     if (isPdf && groqKey) {
-      try {
-        const { text } = await this.extractPdfText(file);
-        if (text && text.length > 20) {
-          onProgress?.('Falling back to Groq LPU engine...');
+      onProgress?.('Vision scanning unavailable. Falling back to text inspection...');
+      const { text, hasDigitalText } = await this.extractPdfText(file);
+
+      if (hasDigitalText || text.length > 40) {
+        try {
+          onProgress?.('Text detected! Running fast Groq analysis... (Accuracy may be lower for grids)');
           const result = await this.scanWithGroqText(text, groqKey, file.name, onProgress);
-          if (result.success && result.timetable) {
+          if (result.success && result.timetable && result.timetable.divisions.some(d => d.slots.length > 0)) {
             return result;
           }
+        } catch (groqErr) {
+          console.warn('Groq text scan fallback failed...', groqErr);
         }
-      } catch (e: any) {
-        lastError = e.message || lastError;
       }
     }
+
 
     return {
       success: false,
