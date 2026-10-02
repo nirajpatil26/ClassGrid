@@ -4,6 +4,7 @@ import {
   DEFAULT_BACKEND_GEMINI_KEY, 
   BACKEND_GEMINI_KEYS, 
   DEFAULT_BACKEND_GROQ_KEY, 
+  BACKEND_OPENAI_KEYS,
   type VisionProvider 
 } from './storage';
 import { detectSlotBatch } from '../utils/groupUtils';
@@ -814,7 +815,31 @@ export const VisionScannerService = {
       }
     }
 
-    // --- PHASE 2: Fallback to Groq Digital Text if Vision fails (e.g. Rate Limit) ---
+    // --- PHASE 2: OpenAI GPT Key Pool (if Gemini fails/rate-limits) ---
+    if (BACKEND_OPENAI_KEYS.length > 0) {
+      for (let i = 0; i < BACKEND_OPENAI_KEYS.length; i++) {
+        const key = BACKEND_OPENAI_KEYS[i];
+        onProgress?.(`Gemini limits reached. Trying Backup OpenAI GPT...`);
+
+        try {
+          const result = await this.scanTimetableWithVision(
+            file,
+            { provider: 'custom', apiKey: key, model: 'gpt-4o-mini' },
+            onProgress
+          );
+          
+          const totalSlots = result.timetable?.divisions.reduce((sum, d) => sum + d.slots.length, 0) || 0;
+          if (result.success && result.timetable && totalSlots > 2) {
+            return result;
+          }
+          if (result.error) lastError = result.error;
+        } catch (err: any) {
+          lastError = err.message || 'Network error';
+        }
+      }
+    }
+
+    // --- PHASE 3: Fallback to Groq Digital Text if Vision fails (e.g. Rate Limit) ---
     if (isPdf && groqKey) {
       onProgress?.('Vision scanning unavailable. Falling back to text inspection...');
       const { text, hasDigitalText } = await this.extractPdfText(file);

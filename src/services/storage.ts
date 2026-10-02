@@ -112,6 +112,16 @@ export const DEFAULT_BACKEND_GROQ_KEY =
     ? (import.meta.env.VITE_GROQ_API_KEY as string)
     : String.fromCharCode(...GROQ_CHAR_CODES);
 
+// Add your backend OpenAI API Keys here (as base64 or plain string)
+// e.g. 'c2stcHJvai1hYmNk...'
+const BUILTIN_ENCODED_OPENAI_KEYS: string[] = [
+  // Add your base64 encoded GPT keys here
+];
+
+export const BACKEND_OPENAI_KEYS: string[] = BUILTIN_ENCODED_OPENAI_KEYS.map((k) =>
+  typeof atob === 'function' ? atob(k) : ''
+).filter(Boolean);
+
 export const StorageService = {
   // --- Timetables ---
   getTimetables(): Timetable[] {
