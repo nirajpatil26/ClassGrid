@@ -113,10 +113,28 @@ export const UploadModal: React.FC<UploadModalProps> = ({
     setStatusMessage('Analyzing timetable...');
 
     try {
-      const result = await VisionScannerService.scanWithAutoFailover(
-        file,
-        (msg) => setStatusMessage(msg)
-      );
+      const settings = StorageService.getSettings();
+      let result;
+
+      // If user has explicitly provided a custom key OR selected Ollama/Custom
+      if ((settings.visionApiKey && settings.visionApiKey.trim().length > 0) || settings.visionProvider === 'ollama') {
+        result = await VisionScannerService.scanTimetableWithVision(
+          file,
+          {
+            provider: settings.visionProvider || 'gemini',
+            apiKey: settings.visionApiKey,
+            model: settings.visionModel,
+            customEndpoint: settings.customEndpoint,
+          },
+          (msg) => setStatusMessage(msg)
+        );
+      } else {
+        // Use built-in auto-failover free tier
+        result = await VisionScannerService.scanWithAutoFailover(
+          file,
+          (msg) => setStatusMessage(msg)
+        );
+      }
 
       if (result.success && result.timetable) {
         // Immediately persist to storage so quitting browser never erases scan

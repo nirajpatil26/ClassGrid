@@ -129,7 +129,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <option value="groq">Groq Cloud (Free & Ultra-Fast, Llama 3.2 Vision)</option>
                 <option value="openrouter">OpenRouter (Free Tier, Qwen 2.5 VL)</option>
                 <option value="ollama">Ollama (100% Local PC AI, No Key)</option>
-                <option value="custom">Custom OpenAI-Compatible Vision API</option>
+                <option value="custom">OpenAI GPT-4o-mini / Custom API</option>
               </select>
             </div>
 

@@ -85,13 +85,13 @@ export const PROVIDER_INFO: Record<
     requiresKey: false,
   },
   custom: {
-    name: 'Custom OpenAI-Compatible Vision API',
-    description: 'Connect any vision-capable OpenAI-compatible model endpoint.',
+    name: 'OpenAI GPT / Custom Vision API',
+    description: 'Use OpenAI GPT-4o-mini / GPT-4o or any other OpenAI-compatible vision endpoint.',
     endpoint: 'https://api.openai.com/v1/chat/completions',
     defaultModel: 'gpt-4o-mini',
     models: ['gpt-4o-mini', 'gpt-4o'],
-    keyHelpUrl: '',
-    keyPlaceholder: 'API Key...',
+    keyHelpUrl: 'https://platform.openai.com/api-keys',
+    keyPlaceholder: 'sk-proj-...',
     requiresKey: true,
   },
 };
