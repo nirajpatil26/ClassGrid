@@ -110,6 +110,12 @@ export const AuthService = {
 
         // If user is not yet logged in, prompt One-Tap smoothly
         if (!this.getUser()) {
+          // Render native sign-in button into navbar if present
+          const btnContainer = document.getElementById('google-signin-btn-container');
+          if (btnContainer) {
+            this.renderGoogleButton(btnContainer);
+          }
+
           setTimeout(() => {
             try {
               window.google?.accounts?.id?.prompt((notification: any) => {
@@ -138,7 +144,7 @@ export const AuthService = {
       let attempts = 0;
       const interval = setInterval(() => {
         attempts++;
-        if (checkAndInit() || attempts > 20) {
+        if (checkAndInit() || attempts > 40) {
           clearInterval(interval);
         }
       }, 250);

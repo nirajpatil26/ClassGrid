@@ -117,9 +117,10 @@ Your task is to analyze the timetable grid and accurately identify:
    - For regular lectures attended by all students, set "batch": "All".
 
 CRITICAL REQUIREMENTS FOR FULL-WEEK & MULTI-PAGE EXTRACTION:
+- ABSOLUTELY NO SKIPPING: You MUST extract EVERY SINGLE lecture, lab, and tutorial present in the image/document. Do NOT skip any slots or abbreviate your response.
+- COMPLETE ALL DAYS: You MUST output slots for ALL days present (Monday, Tuesday, Wednesday, Thursday, Friday, Saturday). If a day has 8 classes, you must output exactly 8 slots for that day.
 - MULTI-PAGE DOCUMENTS: The user document may contain MULTIPLE pages. Often, each page represents a separate day of the week (e.g. Page 1 = Monday, Page 2 = Tuesday, Page 3 = Wednesday, Page 4 = Thursday, Page 5 = Friday, Page 6 = Saturday).
-- YOU MUST PROCESS AND EXTRACT SLOTS FROM EVERY SINGLE PAGE PROVIDED. NEVER STOP AFTER PAGE 2 OR 3!
-- COMPLETE ALL DAYS: You MUST output slots for ALL days present in the timetable: Monday, Tuesday, Wednesday, Thursday, Friday, and Saturday. Do NOT skip Thursday, Friday, or Saturday under any circumstances!
+- YOU MUST PROCESS AND EXTRACT SLOTS FROM EVERY SINGLE PAGE PROVIDED. NEVER STOP EARLY!
 - COMBINE INTO DIVISIONS: Group all slots from all days into their respective division's "slots" array.
 
 Return ONLY a valid JSON object strictly matching this schema with NO extra markdown or explanations:

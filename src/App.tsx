@@ -179,7 +179,6 @@ export const App: React.FC = () => {
         onOpenUpload={() => setIsUploadOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
         currentUser={currentUser}
-        onSignIn={() => AuthService.promptSignIn()}
         onSignOut={() => {
           AuthService.signOut();
           setCurrentUser(null);
